@@ -1,0 +1,50 @@
+name: SDK Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "sdk/**"
+
+jobs:
+  test:
+    name: ${{ matrix.package }} / Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.12"]
+        package:
+          - acp-gateway
+          - acp-tracing
+          - acp-governance
+          - acp-intelligence
+          - acp-sdk
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install packages and test dependencies
+        working-directory: sdk
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "packages/acp-gateway"
+          pip install -e "packages/acp-tracing"
+          pip install -e "packages/acp-governance"
+          pip install -e "packages/acp-intelligence"
+          pip install -e "packages/acp-sdk"
+          pip install -e "packages/${{ matrix.package }}[all]"
+          pip install pytest
+
+      - name: Run tests
+        working-directory: sdk
+        run: pytest packages/${{ matrix.package }}/tests/ -v --tb=short

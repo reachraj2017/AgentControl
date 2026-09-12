@@ -1,0 +1,39 @@
+# Environment — never commit secrets
+.env
+*.env
+.env.*
+!.env.example
+
+# ClickHouse data volumes
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+.venv/
+venv/
+env/
+opt-demo/venv/
+
+# Testing
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+*.log

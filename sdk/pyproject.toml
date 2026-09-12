@@ -1,0 +1,9 @@
+[tool.pytest.ini_options]
+addopts = "--import-mode=importlib"
+testpaths = [
+    "packages/acp-gateway/tests",
+    "packages/acp-tracing/tests",
+    "packages/acp-governance/tests",
+    "packages/acp-intelligence/tests",
+    "packages/acp-sdk/tests",
+]

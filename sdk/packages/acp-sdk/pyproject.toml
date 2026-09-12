@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "acp-sdk"
+version = "0.1.0"
+description = "AI Control Plane SDK — umbrella package combining gateway routing, OTLP tracing, governance enforcement, and EvalGov intelligence"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+keywords = ["llm", "agent", "gateway", "tracing", "governance", "ai-control-plane"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "acp-gateway>=0.1.0",
+    "acp-tracing>=0.1.0",
+    "acp-governance>=0.1.0",
+    "acp-intelligence>=0.1.0",
+    "acp-signals>=0.1.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+anthropic = ["anthropic>=0.25.0"]
+otel = [
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+]
+all = [
+    "openai>=1.0.0",
+    "anthropic>=0.25.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.20.0",
+]
+
+[project.urls]
+Repository = "https://github.com/your-org/ai-control-plane-sdk"
+Documentation = "https://github.com/your-org/ai-control-plane-sdk"
+"Bug Tracker" = "https://github.com/your-org/ai-control-plane-sdk/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["acp_sdk*"]

@@ -1,0 +1,154 @@
+# AI Control Plane — M1 + M2 (Observability & Eval + Governance)
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    environment:
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse
+      - ./infra/clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./infra/clickhouse/users.xml:/etc/clickhouse-server/users.d/users.xml
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  jaeger-init:
+    image: alpine:3.19
+    volumes:
+      - jaeger_badger_data:/badger/data
+      - jaeger_badger_key:/badger/key
+    command: ["sh", "-c", "chown -R 10001:0 /badger/data /badger/key && chmod -R g+w /badger/data /badger/key"]
+    restart: "no"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    depends_on:
+      jaeger-init:
+        condition: service_completed_successfully
+    environment:
+      SPAN_STORAGE_TYPE: badger
+      BADGER_EPHEMERAL: "false"
+      BADGER_DIRECTORY_VALUE: /badger/data
+      BADGER_DIRECTORY_KEY: /badger/key
+    ports:
+      - "16686:16686"
+      - "14250:14250"
+      - "14268:14268"
+    volumes:
+      - jaeger_badger_data:/badger/data
+      - jaeger_badger_key:/badger/key
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    command: ["--config=/etc/otel/config.yaml"]
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8888"
+    volumes:
+      - ./infra/otelcol/config.yaml:/etc/otel/config.yaml
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      jaeger:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  eval-runner:
+    build:
+      context: ./modules/m1-observability-eval/eval_runner
+    ports:
+      - "8000:8000"
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      JUDGE_MODEL: ${JUDGE_MODEL:-anthropic/claude-haiku-4-5-20251001}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  governance-service:
+    build:
+      context: ./modules/m2-governance-enforcement/governance_service
+    ports:
+      - "8002:8002"
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8002/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  portal:
+    build:
+      context: ./portal
+    ports:
+      - "8888:8888"
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      EVAL_RUNNER_URL: http://eval-runner:8000
+      GOVERNANCE_SERVICE_URL: http://governance-service:8002
+      EVALGOV_AGENT_URL: ""
+      GATEWAY_URL: ""
+      M1_ENABLED: "true"
+      M2_ENABLED: "true"
+      M3_ENABLED: "false"
+      M4_ENABLED: "false"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  jaeger_badger_data:
+  jaeger_badger_key:
