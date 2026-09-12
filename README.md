@@ -23,7 +23,7 @@ The AgenticAI Control Plane solves this by placing the **Agent Gateway** at the 
 ```
 Your Multi-Agent System
   │
-  │  every LLM call from every agent
+  │  every agent call
   ▼
 ┌─────────────────────────────────────────────────────┐
 │              Agent Gateway (M3)                     │
