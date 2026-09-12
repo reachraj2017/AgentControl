@@ -2,7 +2,7 @@
 
 How to connect any multi-agent system — yours, or one you're pointing an AI coding agent at — to the AI Control Plane. Works equally well read by a human or followed step-by-step by an AI assistant (Claude Code, etc.); the "AI agent walkthrough" at the end gives it a self-contained detect/decide/verify script.
 
-**This guide reflects the actual, verified v4 architecture** — not aspirational design intent. Where something is designed but not yet confirmed working (e.g. Gemini routing), that's called out explicitly. See `design/v4-implementation-status.md` for the full record of what was built, run for real, and fixed.
+**This guide reflects the actual system behavior.** Where something is implemented but not yet confirmed working end-to-end (e.g. Gemini routing), that's called out explicitly inline.
 
 ---
 
@@ -29,8 +29,6 @@ Three independent layers, increasing depth and effort. Add only what you actuall
 | **1. Gateway wire capture** | Full eval scoring (68-metric pipeline), automatic governance (rate limits, budgets, model allowlists), routing/caching/Call Log | Zero code — point a base URL | Always start here |
 | **2. Standards-based tracing** | Deep multi-agent structure: per-sub-agent breakdown, real nested call tree | One line, if your framework emits OTel/OpenInference/OpenLLMetry | You want to see individual sub-agent scores, not just one aggregate per conversation |
 | **3. Explicit signals** | Pre-action gates, sub-agent handoffs, non-LLM tool calls — things that never touch an LLM at all | A few explicit function calls at points you control | You need HITL approval gates, or handoff/tool-selection scoring |
-
-Full architectural rationale: `design/v2-gateway-capture-m1-ingest.md` (Layer 1) and `design/checkpoint-handoff-ingest.md` (Layer 3).
 
 ---
 
@@ -72,7 +70,7 @@ openai.api_key  = "gw-sk-..."   # from Step 1
 export OPENAI_BASE_URL="http://localhost:8080/v1"
 export OPENAI_API_KEY="gw-sk-..."
 ```
-The SDK builds its own `AsyncOpenAI()` client internally and reads `os.environ["OPENAI_BASE_URL"]` — it does not read `openai.base_url` as a module attribute. Setting the attribute silently does nothing: every call bypasses the gateway with no error, no warning, and zero gateway call-log entries. This was the first thing that broke when this was tested against a real external agent system (`docs/external-agent-integration-findings.md`, Issue 1) — worth calling `agents.set_default_openai_client()` explicitly if you want to be certain, and `agents.set_tracing_disabled(True)` to suppress the SDK's own competing telemetry (Issue 5, same doc).
+The SDK builds its own `AsyncOpenAI()` client internally and reads `os.environ["OPENAI_BASE_URL"]` — it does not read `openai.base_url` as a module attribute. Setting the attribute silently does nothing: every call bypasses the gateway with no error, no warning, and zero gateway call-log entries. Call `agents.set_default_openai_client()` explicitly if you want to be certain the gateway client is used, and `agents.set_tracing_disabled(True)` to suppress the SDK's own built-in tracing, which otherwise competes with this system's telemetry and will emit noisy 401s once your `OPENAI_API_KEY` is a gateway key rather than a real provider key.
 
 **Anthropic/Gemini native clients** — just point `base_url` at the gateway's `/v1/messages` or the Gemini path with your normal, unprefixed model name (e.g. `claude-sonnet-4-6`, not `anthropic/claude-sonnet-4-6`) — the gateway resolves the provider automatically for these protocol-specific endpoints.
 
@@ -148,7 +146,7 @@ with AgentSpan("process_query", agent_role="researcher", llm_model="gpt-4o-mini"
     span.set_llm_tokens(tokens_in=512, tokens_out=128)
 ```
 
-**Gotcha if you combine this with manual ACP-native spans for the same call** (i.e. your framework has its own native tracing *and* you also wrap calls manually): a framework's own wrapper span (e.g. Google ADK's `invoke_agent <agent>`) can be a nested, redundant representation of the same invocation your manual span already covers. M1's ingestion now deduplicates this correctly — only the outermost/native span counts per invocation — but it was a real bug found and fixed this session (`design/v4-implementation-status.md` §4.5/§4.6), so if you see a phantom `agent_name: unknown` row or a token count that looks inflated relative to what the gateway itself logged for the same call, that combination is the first thing to check.
+**If you combine this with manual ACP-native spans for the same call** (i.e. your framework has its own native tracing *and* you also wrap calls manually): a framework's own wrapper span (e.g. Google ADK's `invoke_agent <agent>`) can be a nested, redundant representation of the same invocation your manual span already covers. M1's ingestion deduplicates this — only the outermost/native span counts per invocation — but if you ever see a phantom `agent_name: unknown` row or a token count that looks inflated relative to what the gateway itself logged for the same call, that combination is the first thing to check.
 
 ---
 
@@ -174,7 +172,7 @@ tool_span("web_search", input={"query": "..."}, output={"hits": 5}, latency_ms=2
 
 ### Framework adapters
 
-Each adapter wires a framework's own **documented** hook/callback/plugin interface to the three calls above — never an undocumented internal. Confidence levels below were verified against real installed (or, for CrewAI, freshly downloaded) package source — see `sdk/packages/acp-signals/README.md` for the up-to-date table and `design/v4-implementation-status.md` §5 for how each was checked:
+Each adapter wires a framework's own **documented** hook/callback/plugin interface to the three calls above — never an undocumented internal. Confidence levels below were verified against real installed package source — see `sdk/packages/acp-signals/README.md` for the up-to-date table:
 
 | Framework | Adapter | Confidence |
 |---|---|---|
@@ -196,7 +194,7 @@ Rate limits, budgets, and model allowlists on your virtual key apply the moment 
 
 ## Validate — this is not optional
 
-**Every non-trivial bug found in this system, across an extensive validation pass, was found by running one real request and comparing raw data — never by reading code alone.** Do this after wiring anything, before trusting it:
+**Running one real request and comparing raw data catches almost every real instrumentation problem — reading code alone does not.** Do this after wiring anything, before trusting it:
 
 1. Send one real request through your new integration.
 2. Check the portal's **Call Log** (M3) — did it show up, with the right `agent_role`/`system_id`, and correct tokens?
@@ -213,14 +211,14 @@ SELECT agent_name, prompt_tokens, completion_tokens FROM otel.prompt_evals WHERE
 
 ---
 
-## Common gotchas (all real, all hit during this system's own validation)
+## Common gotchas
 
 - **OpenAI Agents SDK base-URL redirect** — must be an environment variable, not a module attribute (Layer 1, Step 2, above).
-- **Native protocol model prefixing** — handled automatically by the gateway now; if you're checking behavior against an older deployment, confirm `protocol_adapters.py` has `_ensure_backend_prefix`.
-- **Dual-instrumentation nested spans** — see the Layer 2 gotcha above.
+- **Native protocol model prefixing** — the gateway auto-prefixes bare model names for the Anthropic/Gemini native endpoints (`_ensure_backend_prefix` in `protocol_adapters.py`); you don't need to prefix them yourself.
+- **Dual-instrumentation nested spans** — see the Layer 2 note above.
 - **Conversation ID required for multi-turn scoring** — without `X-Gateway-Conversation-Id` (or the equivalent explicit signal), you'll only ever see per-turn scores, never conversation-level ones.
 - **Traffic pools can route to surprising backends.** If you set up a weighted traffic pool that includes a local Ollama endpoint, expect that model's own answers and its own token-accounting quirks (some models report internal reasoning tokens in their usage stats even though that content never appears in the visible response) — check `model_used`/`backend_used` on the Call Log entry before assuming an eval score reflects your primary model.
-- **Gemini `generateContent` routing was fixed but not confirmed against a real Gemini API key** in this environment — the model-prefix logic was verified via LiteLLM's error message changing from a routing failure to a credentials failure, but no successful real Gemini response was observed. Validate this one yourself if you use it.
+- **Gemini `generateContent` routing has not been validated against a real Gemini API key** — the request path is implemented, but confirm it yourself before relying on it.
 
 ---
 

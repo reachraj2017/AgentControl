@@ -2,7 +2,7 @@
 
 A production-grade control plane built around the **Agent Gateway** — the single point through which every LLM call and agent interaction in your multi-agent system flows. Route your agents through it once, and you get observability, evaluation, governance, enforcement, and conversational intelligence automatically, with no changes to your agent logic.
 
-**v4 is a from-scratch rearchitecture of the ingestion layer**, built on top of the working v2 modules (68-metric eval pipeline, 13-category governance engine, gateway routing/caching/A-B/shadow/traffic, EvalGov coordinator + sub-agents, portal — all unchanged). What changed is *how data gets in*. See [`design/v2-gateway-capture-m1-ingest.md`](design/v2-gateway-capture-m1-ingest.md) and [`design/checkpoint-handoff-ingest.md`](design/checkpoint-handoff-ingest.md) for the full rationale; the short version is below.
+The platform combines a 68-metric eval pipeline, a 13-category governance engine, gateway routing/caching/A-B/shadow/traffic management, and an EvalGov coordinator + sub-agents behind one portal — all fed by the gateway-primary ingestion model described below.
 
 ---
 
@@ -42,21 +42,28 @@ Your Multi-Agent System
 
 ---
 
-## v4 architecture: a three-layer capture stack
+## Architecture: a three-layer capture stack
 
-Earlier versions treated gateway capture and in-process SDK tracing as two co-equal, loosely-reconciled paths — and M1's eval trigger was keyed to a span name (`agent.task`) that ACP invented itself. That's why a real external agent system (see [`docs/external-agent-integration-findings.md`](docs/external-agent-integration-findings.md)) hit six integration failures before a single eval score appeared. v4 restructures ingestion around one principle: **the gateway is the single ingress boundary for the control plane; standards, not an ACP-invented contract, define what flows through it.**
+The control plane's ingestion model rests on one principle: **the gateway is the single ingress boundary for the control plane; standards, not a proprietary contract, define what flows through it.**
 
 **Layer 1 — Gateway wire capture (the floor).** Any framework, any language, zero code beyond a base-URL redirect. Protocol-complete: `/v1/chat/completions`, `/v1/responses` (OpenAI Agents SDK, hosted tools), `/v1/messages` (Anthropic/Claude Agent SDK), Gemini `generateContent` (Google ADK), `/v1/embeddings`. Every call is normalized into one `GatewayCallRecord` shape and written to `gateway_call_log` — durable, immutable, the same table regardless of dialect. M1's `GatewayIngestPipeline` polls this table directly and feeds the real 68-metric pipeline — no bespoke span required. This is also what M2's real-time enforcement, caching, and routing require synchronously in the request path; no passive layer can replace it.
 
-**Layer 2 — Standards-based structural depth.** Instead of a bespoke ACP tracer trying to reconstruct every framework's internals (the thing that broke), M1's trace assembler natively recognizes three industry-standard span dialects via a normalization layer (`ingestion/semconv_mapping.py`): **OTel GenAI Semantic Conventions**, **OpenInference** (Arize), and **OpenLLMetry** (Traceloop). Point any of their community-maintained auto-instrumentors at the OTel collector and richer structure (tool calls, chains, retrieval, agent spans) flows in — maintained upstream by those ecosystems, not by ACP.
+**Layer 2 — Standards-based structural depth.** Rather than relying on a proprietary tracer to reconstruct every framework's internals, M1's trace assembler natively recognizes three industry-standard span dialects via a normalization layer (`ingestion/semconv_mapping.py`): **OTel GenAI Semantic Conventions**, **OpenInference** (Arize), and **OpenLLMetry** (Traceloop). Point any of their community-maintained auto-instrumentors at the OTel collector and richer structure (tool calls, chains, retrieval, agent spans) flows in — maintained upstream by those ecosystems, not by ACP.
 
 **Layer 3 — Explicit checkpoint/handoff/tool-span signals.** Some things never cross the LLM wire at all: a pre-action HITL gate, a sub-agent handoff, a non-LLM tool call. These go through the same gateway front door via three small endpoints (`/v1/checkpoint`, `/v1/handoff`, `/v1/tool-span`) and a thin `acp-signals` SDK client, wired to each framework's *own documented* extension point (OpenAI Agents SDK `RunHooks`, Google ADK callbacks, LangChain `BaseCallbackHandler`, CrewAI step/task callbacks) — never a passive, undocumented patch.
 
 Correlation across all three layers uses one shared primitive: W3C trace context (`trace_id`/`conversation_id`). If a trace already has in-process spans (Layer 2), gateway rows for the same id are merged as metadata only — never double-evaluated.
 
-Honest limits, unchanged by this rearchitecture: real-time blocking/routing/caching must stay in the gateway's synchronous path — no passive layer, however standards-based, can gate a call it only observes after the fact. And fully-managed hosted agent runtimes (e.g. server-side tool execution that never leaves a provider's own infrastructure) are structurally out of reach for any capture mechanism that isn't the provider's own log export — a different, unaddressed workstream.
+Structural limits: real-time blocking/routing/caching must stay in the gateway's synchronous path — no passive layer, however standards-based, can gate a call it only observes after the fact. And fully-managed hosted agent runtimes (e.g. server-side tool execution that never leaves a provider's own infrastructure) are structurally out of reach for any capture mechanism that isn't the provider's own log export.
 
-**Status:** implemented and validated against a live stack — real LLM calls through every new endpoint, `opt-demo` run end-to-end, all four framework adapters checked against real installed packages. Four real bugs were found and fixed in the process (not just reviewed away). See [`design/v4-implementation-status.md`](design/v4-implementation-status.md) for the full record — what was tested, what broke, and what's still a known limitation (streaming re-dialection, embeddings bypassing governance, Gemini untested for lack of an API key, and others).
+### Known limitations
+
+- **Streaming pass-through is incomplete** for `/v1/responses` and Gemini `:streamGenerateContent` — both currently pass through the underlying chat-completions SSE shape rather than re-dialecting each chunk into the caller's native streaming format.
+- **`/v1/embeddings` bypasses routing/governance/cache** — it uses a lean auth-only path, so A/B tests and routing policies don't apply to embedding calls.
+- **`/v1/checkpoint` blocks synchronously on HITL** rather than returning `hitl_pending` immediately with separate polling.
+- **Gemini `generateContent` routing has not been validated against a real Gemini API key** in this deployment — the request path is implemented, but confirm it yourself before relying on it in production.
+- **`gateway_structural_events` and stored message payload retention have no TTL policy yet** — plan for storage growth if running at volume.
+- **`backend_used` in the Call Log can display the wrong provider name** for a passthrough-routed call whose model already carries an explicit provider prefix (e.g. shows `"openai"` for an Anthropic call) — cosmetic only; the actual LLM dispatch is correct regardless.
 
 ---
 
@@ -154,6 +161,33 @@ Start only the modules you need:
 | `make up-m1-m2` | + governance & enforcement |
 | `make up-m1-m2-m3` | + gateway agent (M3 sub-agent) |
 | `make up` | Full stack — all modules + all agents + portal |
+
+---
+
+## Try it — the bundled demo (opt-demo)
+
+Before instrumenting your own system, see the whole thing working end to end with the included demo: a Google ADK multi-agent system (orchestrator → searcher/summarizer/translator) already wired to all three modules.
+
+```bash
+cd opt-demo
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+
+cp .env.example .env
+# Edit .env — set OPENAI_API_KEY at minimum
+```
+
+If you left `GATEWAY_AUTH_ENABLED` unset in the main `.env` (off by default), that's all you need. If you turned gateway auth on, create a virtual key first and put it in `opt-demo/.env` as both `OPENAI_API_KEY` and `GATEWAY_API_KEY` — see `opt-demo/README.md`'s Prerequisites for the exact command.
+
+Then run it either as an interactive chat UI or as a benchmark server the portal's Eval Testing page can drive:
+
+```bash
+streamlit run chat_ui.py       # interactive chat → http://localhost:8501
+# or
+python3 server.py              # REST API for benchmark runs → http://localhost:8090
+```
+
+Try a query like `Search quantum computing, summarize in 20 words, translate to Hindi`, then check `http://localhost:8888` → **M3 Call Log** and **M1 Eval Measurements** — you should see the call and its eval scores appear within seconds. Full walkthrough, including the benchmark-run setup: [`opt-demo/README.md`](opt-demo/README.md).
 
 ---
 

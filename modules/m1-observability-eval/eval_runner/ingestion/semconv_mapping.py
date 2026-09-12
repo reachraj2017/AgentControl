@@ -17,9 +17,7 @@ agent framework might already emit:
      agent.handoff / llm_call / agent.llm_call / generate_content / openai.chat),
      kept as the always-recognized baseline and fallback.
 
-design/v2-gateway-capture-m1-ingest.md and design/checkpoint-handoff-ingest.md
-call this out as the fix for M1 only ever recognizing its own invented span
-shape: any of these four dialects should trigger evaluation and extract
+Any of these four dialects triggers evaluation and extracts
 correctly, not just ACP's own convention. Because these three external
 dialects are actively converging toward one OTel standard, this mapping table
 is expected to shrink over time, not grow the way a bespoke per-framework

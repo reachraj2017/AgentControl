@@ -4,16 +4,13 @@ acp_signals.client
 Explicit client for the three signal types the gateway wire protocol can never
 see: pre-action governance checkpoints, sub-agent handoffs, and non-LLM tool
 executions. Each is a small, stable POST to the AI Control Plane Agent
-Gateway (M3) — the same front door as LLM traffic, per
-design/checkpoint-handoff-ingest.md — not a separate side channel.
+Gateway (M3) — the same front door as LLM traffic, not a separate side channel.
 
 These are explicit, developer-added calls, not passive instrumentation. That
 is a deliberate design choice: passive interception (patching a framework's
-client, registering a competing global tracer) is what broke in production
-against real external agent systems (see
-docs/external-agent-integration-findings.md, Issues 1, 2, 5). A stable
-function call at a point the developer already controls does not rot the way
-a passive patch does when a framework's internals change.
+client, registering a competing global tracer) is fragile against a
+framework's own internals and its own telemetry in a way an explicit,
+stable function call at a point the developer already controls is not.
 
 Usage::
 
@@ -123,8 +120,7 @@ class SignalsClient:
             )
         except Exception as exc:
             # Fail-open by default, matching the gateway's documented fail-open
-            # enforcement posture (see docs/external-agent-integration-findings.md,
-            # "pre-existing issues"). Callers that need fail-closed behavior for a
+            # enforcement posture. Callers that need fail-closed behavior for a
             # specific action should treat Decision.error != "" as a hard stop.
             return Decision(decision="allow", error=str(exc))
 

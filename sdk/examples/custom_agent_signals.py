@@ -1,8 +1,8 @@
 """
 Custom / raw agent loop — checkpoint, handoff, tool_span with no framework.
 
-This is the "no framework at all" row from design/checkpoint-handoff-ingest.md
-§4: no adapter exists (or is needed) because there's no framework-owned hook
+This is the "no framework at all" case: no adapter exists (or is needed)
+because there's no framework-owned hook
 to attach to — you call the three explicit signal functions directly at the
 points in your own code where they apply. This is the same small, stable API
 surface a framework adapter uses internally; a framework just calls it from

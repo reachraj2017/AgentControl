@@ -19,9 +19,8 @@ solid for any LangChain or LangGraph app. Handoff inference for LangGraph
 multi-agent graphs is best-effort: LangChain's callback system has no single
 first-class "handoff" event, so this adapter infers a handoff whenever
 ``on_chain_start`` fires for a chain/node whose name differs from the
-previously-active one — a role-change heuristic, consistent with the same
-approach used in ``design/v2-gateway-capture-m1-ingest.md`` §5.4 and in the
-``google_adk`` adapter. If your graph names every node distinctly, this is a
+previously-active one — a role-change heuristic, the same approach used in
+the ``google_adk`` adapter. If your graph names every node distinctly, this is a
 reasonable proxy for agent boundaries; if it doesn't, handoff events may be
 noisy or absent.
 

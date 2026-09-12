@@ -381,10 +381,10 @@ def _last_user_text(messages: list[dict]) -> str:
     return ""
 
 
-# ── v4: GatewayCallRecord enrichment helpers ─────────────────────────────────
-# design/v2-gateway-capture-m1-ingest.md §5.1 — messages_json / response_tool_calls_json
-# feed M1's GatewayIngestPipeline target synthesis (tool_selection_accuracy,
-# tool_argument_accuracy, tool_error_rate) without needing in-process spans.
+# ── GatewayCallRecord enrichment helpers ─────────────────────────────────────
+# messages_json / response_tool_calls_json feed M1's GatewayIngestPipeline
+# target synthesis (tool_selection_accuracy, tool_argument_accuracy,
+# tool_error_rate) without needing in-process spans.
 
 def _messages_json(messages: list[dict]) -> str:
     try:
@@ -1243,7 +1243,7 @@ class ProxyHandler:
         ))
         return JSONResponse(content=resp_dict)
 
-    # ── v4: checkpoint / handoff / tool-span — design/checkpoint-handoff-ingest.md §4 ─
+    # ── Checkpoint / handoff / tool-span ──────────────────────────────────────
     # Same front door (auth, durable logging) as LLM traffic, for the signals
     # that never cross the LLM wire: pre-action gates, sub-agent handoffs, and
     # non-LLM tool executions. Fronts the SAME governance gate_check() the

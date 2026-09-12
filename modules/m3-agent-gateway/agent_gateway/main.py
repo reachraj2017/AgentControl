@@ -155,8 +155,8 @@ async def chat_completions(request: Request):
     )
 
 
-# ── v4: protocol completeness ─────────────────────────────────────────────────
-# design/v2-gateway-capture-m1-ingest.md §5.5. Each handler normalises its
+# ── Protocol completeness ──────────────────────────────────────────────────────
+# Each handler normalises its
 # provider-native request into chat/completions, calls the SAME proxy.handle()
 # core (auth, routing, enforcement, caching, logging all reused unchanged),
 # then translates the response back into the caller's own dialect.
@@ -178,8 +178,7 @@ def _gw_context(hdrs: dict) -> dict:
 @app.post("/v1/responses", tags=["LLM Proxy"])
 async def responses_api(request: Request):
     """OpenAI Responses API — default transport for the OpenAI Agents SDK,
-    required for hosted tools (WebSearchTool, FileSearchTool, ComputerTool).
-    See docs/external-agent-integration-findings.md Issue 3."""
+    required for hosted tools (WebSearchTool, FileSearchTool, ComputerTool)."""
     body = await request.json()
     hdrs = dict(request.headers)
     ctx  = _gw_context(hdrs)
@@ -246,10 +245,9 @@ async def embeddings_api(request: Request):
     )
 
 
-# ── v4: checkpoint / handoff / tool-span ──────────────────────────────────────
-# design/checkpoint-handoff-ingest.md §4 — same front door as LLM traffic,
-# for signals that never cross the LLM wire (pre-action gates, sub-agent
-# handoffs, non-LLM tool executions).
+# ── Checkpoint / handoff / tool-span ───────────────────────────────────────────
+# Same front door as LLM traffic, for signals that never cross the LLM wire
+# (pre-action gates, sub-agent handoffs, non-LLM tool executions).
 
 @app.post("/v1/checkpoint", tags=["Structural Signals"])
 async def checkpoint(request: Request):

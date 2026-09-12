@@ -116,13 +116,12 @@ community-maintained instrumentor from the **OpenInference** or **OpenLLMetry** 
 actual per-framework work.
 
 Why: passive, ACP-owned instrumentation (patching a framework's client, registering a competing
-global tracer) is exactly what broke in production against a real external agent system — see
-`docs/external-agent-integration-findings.md` (Issues 1, 2, 5: wrong redirect method, one role
-header for all agents, and a tracing system that fought the framework's own telemetry). OpenInference
-(Arize) and OpenLLMetry (Traceloop) already maintain auto-instrumentors for OpenAI, Anthropic,
-Google/Vertex, LangChain, LlamaIndex, CrewAI, Bedrock, and more, emitting OTel GenAI
-semantic-convention-aligned spans that M1's ingestion pipeline reads natively. That maintenance
-burden belongs to those communities, not to this package.
+global tracer) is fragile against a framework's own internals and its own telemetry in a way a
+community-maintained instrumentor, built and kept current by people who track that framework
+full-time, is not. OpenInference (Arize) and OpenLLMetry (Traceloop) already maintain
+auto-instrumentors for OpenAI, Anthropic, Google/Vertex, LangChain, LlamaIndex, CrewAI, Bedrock, and
+more, emitting OTel GenAI semantic-convention-aligned spans that M1's ingestion pipeline reads
+natively. That maintenance burden belongs to those communities, not to this package.
 
 ```bash
 # 1. Install a community instrumentor for your framework/provider:

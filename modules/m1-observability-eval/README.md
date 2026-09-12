@@ -123,93 +123,47 @@ already exists for that key — synthesises a flat `agent.task` + `llm_call`
 target set and runs it through the exact same `EvalPipeline.run_from_targets()`
 code path the in-process span-tree path uses. Point any framework's
 `base_url` at the gateway (M3) and Eval Measurements / Prompt Analysis
-populate with no code in the target process. See
-`design/v2-gateway-capture-m1-ingest.md` and
-`design/checkpoint-handoff-ingest.md` for the full design.
+populate with no code in the target process.
 
-> **Validated against a live stack** — see `design/v4-implementation-status.md`
-> for the full write-up, including a critical bug found and fixed during that
-> pass: `get_pending_gateway_calls()` checked `st.state IS NULL` after a
-> `LEFT JOIN`, but ClickHouse fills unmatched rows with the column's type
-> default (empty string) rather than SQL `NULL` — so the condition never
-> matched and this entire pipeline silently processed zero rows, forever,
-> with no error. Fixed to check `st.state = ''`. Confirmed end-to-end after
-> the fix: a zero-SDK client hitting the gateway directly now produces full
-> (37-metric) eval coverage, and `opt-demo`'s in-process trace correctly
-> triggers MERGE mode (no duplicate scoring) rather than SYNTHESISE.
->
-> A second bug was found from a user-reported symptom (Prompt Analysis
-> showing each agent turn twice — once with real content and no token cost,
-> once as agent `"unknown"` with cost but no content): the additive
-> standards-recognition below was adding ADK's own native `invoke_agent
-> <agent>` span as a *second* task span even though it's nested inside
-> opt-demo's own `agent.task` span for the same invocation, splitting one
-> invocation's token attribution across two rows. Fixed in
-> `ingestion/trace_assembler.py` — a dialect-recognized task span is now
-> skipped if any ancestor is already a recognized task span (native or
-> dialect), so only the outermost span per branch counts.
->
-> A third bug, same root cause one layer down: Prompt Analysis token counts
-> ran ~3x what `gateway_call_log` showed for the same call. A single real
-> LLM call is represented by a nested chain (ADK's `call_llm` wrapper →
-> `generate_content <model>` → `opentelemetry-instrumentation-openai`'s
-> `openai.chat` child) — the native code already picked exactly one of these
-> to avoid double-counting, but the additive dialect probes didn't know
-> about that exclusion and silently re-added the other two. Fixed the same
-> way: a dialect-recognized LLM span is skipped if it's an ancestor *or*
-> descendant of an already-recognized LLM span.
->
-> A fourth, unrelated bug turned up on a genuinely multi-hop query (search
-> then translate — 3 agent hops): the eval trigger used a fixed 30s
-> cooldown from the *first* completed agent-task span seen for a trace, not
-> a true debounce. Multi-agent conversations export their spans
-> incrementally (one OTLP batch per sub-agent), so anything slower than
-> 30s end-to-end let a later sub-agent's completion fire a second,
-> independent evaluation on top of the first — a 3-agent trace produced 5
-> `prompt_evals` rows instead of 3. Fixed in `main.py`: replaced the
-> timestamp cooldown with a real debounce (`_pending_eval`) — every new
-> completion cancels and reschedules the pending evaluation, so exactly one
-> pass runs, 10s after the *last* completion rather than 10s after the
-> first.
->
-> That fix was necessary but not sufficient — a longer (4-hop) query still
-> showed duplicates, and the user correctly rejected "it's about hop count"
-> as the explanation. The real, more fundamental cause: opt-demo's calls
-> are captured *twice* — once in-process, once by the gateway itself (it
-> also routes through M3). `GatewayIngestPipeline` polls every 5s and, for
-> a real propagated `trace_id`, assumed "gateway-only" the instant it
-> didn't yet see in-process spans — but the in-process pipeline routinely
-> takes 30-90s+ (its own debounce plus a full LLM-judge cascade) to finish,
-> so the 5s poller kept winning the race and writing premature partial
-> passes under its own run_id, entirely bypassing the debounce above. Not a
-> function of hop count at all — a single-agent call races the same way,
-> just with better odds. Fixed in `gateway_ingest_pipeline.py`: a real
-> propagated `trace_id` is itself evidence an in-process tracer is active,
-> so instead of synthesising the moment in-process spans aren't found yet,
-> those rows are left pending and re-checked on the next poll for up to
-> `_INPROCESS_GRACE_SECONDS` (120s) before finally assuming gateway-only.
-> Purely-synthetic gateway-only groups (no real trace_id) are untouched —
-> the zero-SDK integration path stays instant.
->
-> Two more, found while diagnosing "why do I see no conversation scores":
-> (1) `pipeline.run()` — the actual LLM-judge evaluation cascade — was called
-> as a bare synchronous call inside an `async def`, with no
-> `asyncio.to_thread()`. Since asyncio's event loop is single-threaded, that
-> blocked the *entire process* (new trace ingestion, health checks, every
-> other background loop) for the run's full 15-90+ second duration —
-> confirmed via the OTel Collector's own logs timing out trying to reach
-> eval-runner. Fixed by wrapping all three such call sites in
-> `asyncio.to_thread()`, matching the pattern `_shadow_eval_loop` and
-> `_gateway_ingest_loop` already used correctly. (2) Even after that fix,
-> conversation tracking stayed empty: when opt-demo's dual instrumentation
-> puts *both* the ACP-native `agent.task` span and ADK's own native
-> `invoke_agent <agent>` span in one batch, the code picked whichever
-> arrived first with no preference — and `invoke_agent <agent>` carries the
-> namespaced `gen_ai.conversation.id`, not the bare `conversation.id` key
-> read here, and no run-id attribute at all, so picking it silently broke
-> conversation tracking *and* risked misattributing the eval to the
-> generic "default" run. Fixed by explicitly preferring the native span per
-> trace_id when one exists in the batch.
+A background loop groups every gateway call by trace/conversation/run
+identity; a group is only synthesised into eval targets if no in-process
+trace already exists for the same identity — otherwise the in-process trace
+is authoritative and the gateway row is merged as metadata only (never
+double-scored). For a call carrying a real propagated `trace_id`, this loop
+waits (up to a bounded grace period) for an in-process trace to appear
+before concluding none is coming and synthesising from the gateway row
+alone — a real in-process tracer's own debounce and LLM-judge cascade can
+take tens of seconds, and synthesising too early would create a premature,
+partial evaluation alongside the eventual complete one. Purely gateway-only
+integrations (no propagated `trace_id` at all) are unaffected by this wait
+and stay instant.
+
+Evaluation work itself (the LLM-judge cascade) runs on a worker thread
+rather than blocking the service's event loop, so it doesn't stall new
+trace ingestion or other background processing while a long-running
+evaluation is in progress.
+
+The eval trigger debounces: a new completed span for a trace cancels and
+reschedules any pending evaluation for that trace, so a multi-agent
+conversation whose spans arrive across several OTLP batches is evaluated
+exactly once, shortly after the *last* completion — not once per completion.
+
+When a trace contains multiple task-shaped spans for the same logical
+invocation (for example, a framework's own native span, like Google ADK's
+`invoke_agent <agent>`, nested inside a manually-created span for the same
+call), only the outermost span counts as the invocation — a nested,
+framework-native representation of the same call is not treated as a second
+one. The same principle applies one layer down to LLM-call spans: when a
+single real LLM call is represented by a chain of nested spans at different
+instrumentation layers, only one is counted toward token/cost totals, never
+the whole chain.
+
+For conversation and run-id attribution specifically, when a batch contains
+both an ACP-native task span and a framework-native one for the same trace,
+the native span is preferred as the source of identity — only it reliably
+carries the plain `conversation.id`/`run.id` keys this system reads; a
+framework-native span may use a differently namespaced attribute for
+conversation identity and typically has no run-id equivalent at all.
 
 ## Standards-based span recognition
 

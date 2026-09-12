@@ -4,7 +4,6 @@ Gateway ingest pipeline — generalizes ShadowEvalPipeline's proven pattern
 routing them through the real 68-metric EvalPipeline instead of a 3-metric
 side judge.
 
-Per design/v2-gateway-capture-m1-ingest.md and design/checkpoint-handoff-ingest.md:
 gateway_call_log (+ gateway_structural_events for handoff/tool_span/checkpoint
 signals) is the durable queue. This pipeline polls it, groups rows into
 traces, and either:
@@ -394,8 +393,8 @@ class GatewayIngestPipeline:
         all_spans.extend(tool_spans)
         all_spans.extend(handoff_spans)
 
-        # Explicit handoff events (from /v1/handoff, checkpoint-handoff-ingest.md
-        # §4.2) — attach under the root task span, one per event, taking
+        # Explicit handoff events (from /v1/handoff) — attach under the
+        # root task span, one per event, taking
         # precedence over the role-change heuristic above.
         for ev in explicit_handoffs:
             payload = _parse_json(ev.get("payload_json"))

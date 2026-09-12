@@ -36,7 +36,7 @@ Goal: let an integrator attribute calls/conversations to an end user, and see th
 ### Non-goals
 - User-level authentication/authorization (this is an *attribution* label, not an identity/access system).
 - Retroactively backfilling historical calls with a user identifier — this only applies going forward.
-- Solving the broader `messages_json`/payload retention question (already an open item in `v2-gateway-capture-m1-ingest.md` §10.4) — this design should not make that problem worse (see §5, hashing recommendation) but does not solve it either.
+- Solving the broader `messages_json`/payload retention question (a separate, already-open item — no TTL policy currently exists for stored message/payload content) — this design should not make that problem worse (see §5, hashing recommendation) but does not solve it either.
 
 ---
 
@@ -46,7 +46,7 @@ Goal: let an integrator attribute calls/conversations to an end user, and see th
 
 ### 3.1 Layer 1 — Gateway wire capture
 - New header: `X-Gateway-User-Id`, read in `agent_gateway/main.py` the same place `X-Gateway-Conversation-Id` is read today (`_gw_context`).
-- New column `user_id String DEFAULT ''` on `gateway_call_log` (DDL in `db.py` + `log_call`'s insert), following the same additive-column pattern used for `conversation_id`/`protocol`/etc. in the v4 rearchitecture.
+- New column `user_id String DEFAULT ''` on `gateway_call_log` (DDL in `db.py` + `log_call`'s insert), following the same additive-column pattern already used for `conversation_id`/`protocol`/etc.
 - Automatically appears in `/gateway/calls`'s response (no endpoint change needed — it's a plain column) and can be added to the portal's Call Log table exactly as the `prompt`/`response` columns were just added.
 
 ### 3.2 Layer 2 — Standards-based / ACP-native tracing
@@ -87,7 +87,7 @@ Two reasonable options, deliberately not defaulting to the obvious one without w
 
 ## 5. Privacy — a real decision, not an afterthought
 
-A user identifier is often PII (email, username) in a way `system_id`/`agent_role` never are, and it would land in ClickHouse and the portal with no retention policy — compounding the already-open `messages_json` retention question from `v2-gateway-capture-m1-ingest.md` §10.4.
+A user identifier is often PII (email, username) in a way `system_id`/`agent_role` never are, and it would land in ClickHouse and the portal with no retention policy — compounding the already-open question of retention for stored message/payload content generally.
 
 Options, to be decided before implementation, not during:
 1. **Accept whatever the integrator sends, document the risk.** Simplest, but pushes a real compliance decision onto every integrator silently.

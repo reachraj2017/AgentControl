@@ -21,7 +21,7 @@ All LLM calls route through the **ACP Gateway (M3)** via `OPENAI_BASE_URL`. All 
 ## Prerequisites
 
 1. AI Control Plane running — run `make up` in the parent `v4/` directory.
-2. Create a virtual gateway key (required whenever `GATEWAY_AUTH_ENABLED=true`, the default in `.env.example`) and set both `OPENAI_API_KEY` and `GATEWAY_API_KEY` in `opt-demo/.env` to it — a stale or placeholder key will fail auth with a 401:
+2. **Only if you've set `GATEWAY_AUTH_ENABLED=true`** (it's off by default — see the main `README.md`'s Quick Start): create a virtual gateway key and set both `OPENAI_API_KEY` and `GATEWAY_API_KEY` in `opt-demo/.env` to it — a stale or placeholder key will fail auth with a 401 once auth is on:
    ```bash
    MASTER_KEY=$(grep '^GATEWAY_MASTER_KEY=' ../.env | cut -d= -f2-)
    curl -s -X POST http://localhost:8080/gateway/keys \
@@ -142,18 +142,14 @@ Tag multiple runs with the same **Run Group** (e.g. `model-comparison-sprint-1`)
 - **M2 — Governance**: `GovernanceClient.check_policy()` is called before each agent invocation and tool call. A `block` decision returns a `[GOVERNANCE BLOCK]` message instead of running the agent.
 - **M3 — Gateway**: `OPENAI_BASE_URL` is set to `http://localhost:8080/v1`, so every LiteLlm/OpenAI call routes transparently through the ACP Gateway. Gateway routing policies, A/B tests, and enforcement all apply to benchmark runs exactly as they do to live chat.
 
-## Validated end-to-end (v4)
+## Notes on the intent classifier
 
-This demo was actually run against the v4 stack — not just reviewed — as part of validating the
-gateway-ingest rearchitecture (see `design/v4-implementation-status.md` §4.3 for the full writeup).
-That pass found and fixed a real, pre-existing bug in `runner.py`'s regex intent classifier: every
-translate/summarize regex anchored on end-of-string, but ordinary sentences end in punctuation
-(`"...to Japanese."`), so the trailing period silently broke every match and every translate
-request fell back to a broken "translate the previous response" default — the model just echoed
-its own system prompt back with no error anywhere. Fixed to strip trailing punctuation before
-classifying and to tolerate quoted/apostrophe'd inline text. The example queries below are
-confirmed working correctly after that fix; if you're on an older checkout without it, translate
-requests with trailing punctuation will silently misbehave.
+`runner.py`'s regex-based intent classifier strips trailing sentence punctuation before matching
+and tolerates quoted/apostrophe'd inline text (e.g. `Translate 'Good morning, how are you?' to
+Japanese.`). Without this, ordinary sentences ending in a period would fail to match the
+translate/summarize patterns and silently fall back to a "translate/summarize the previous
+response" default instead of using the explicit text provided. The example queries below rely on
+this handling.
 
 ## Example queries
 

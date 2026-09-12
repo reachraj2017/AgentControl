@@ -128,8 +128,7 @@ async def lifespan(app: FastAPI):
     # Start background task that scores unscored shadow calls from the gateway
     asyncio.create_task(_shadow_eval_loop())
     # Start background task that runs gateway-only (no ACP tracer) calls
-    # through the real 68-metric pipeline — see
-    # design/v2-gateway-capture-m1-ingest.md
+    # through the real 68-metric pipeline
     asyncio.create_task(_gateway_ingest_loop())
 
     log.info("eval_runner_started")
@@ -260,9 +259,8 @@ async def _process_spans_background(body: bytes, content_type: str) -> None:
     # Debounce: one completed task span per trace_id per batch is enough to
     # (re)schedule. A dual-instrumented call (opt-demo's manual ACP-native
     # "agent.task" span alongside ADK's own native "invoke_agent <agent>"
-    # span for that same call — see design/v4-implementation-status.md
-    # §4.5) can put MULTIPLE recognized task-shaped spans for the SAME
-    # trace_id in one batch. Which one "wins" the dedup matters: only the
+    # span for that same call) can put MULTIPLE recognized task-shaped spans
+    # for the SAME trace_id in one batch. Which one "wins" the dedup matters: only the
     # ACP-native shape reliably carries the bare "conversation.id"/"run.id"
     # attribute keys this code and get_run_id() read — a dialect-recognized
     # span like "invoke_agent translator" carries the namespaced

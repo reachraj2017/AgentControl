@@ -42,9 +42,8 @@ from acp_signals.client import handoff, tool_span
 # Track the previously-active agent name (per process) to infer a handoff
 # when ADK's before_agent_callback fires for a different agent than last time.
 # ADK doesn't expose an explicit "handoff" event the way openai-agents does;
-# this is a role-change heuristic, consistent with
-# design/v2-gateway-capture-m1-ingest.md §5.4's documented approach for
-# inferring handoffs from role changes.
+# this is a role-change heuristic — the same approach used in the
+# ``langchain`` adapter.
 _last_agent_name: str = ""
 
 # Tool-start timestamps, keyed by (agent name, tool name) to compute latency

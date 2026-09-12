@@ -5,12 +5,10 @@ that **never cross the LLM wire** and so can never be captured by gateway wire c
 any OTel/OpenInference/OpenLLMetry instrumentor, no matter how complete: pre-action governance
 gates, sub-agent handoffs, and non-LLM tool executions.
 
-See `design/checkpoint-handoff-ingest.md` in the main repo for the full architecture. Short version:
-these are **explicit, developer-added calls**, not passive instrumentation. Passive interception
-(patching a framework's client, registering a competing global tracer) is what broke in production
-against a real external agent system — see `docs/external-agent-integration-findings.md`, Issues
-1, 2, and 5. A stable function call at a point you already control does not rot the way a passive
-patch does when a framework's internals change underneath it.
+These are **explicit, developer-added calls**, not passive instrumentation. Passive interception
+(patching a framework's client, registering a competing global tracer) is fragile against a
+framework's internal changes in a way an explicit function call at a point you already control is
+not — the call site is yours, so it doesn't rot when the framework's internals change underneath it.
 
 ## Installation
 
@@ -72,17 +70,16 @@ are not auto-imported, so installing `acp-signals` alone never requires any of t
 
 | Adapter | Confidence | Framework extension point used |
 |---|---|---|
-| `acp_signals.adapters.langchain.ACPCallbackHandler` | **Verified** against `langchain-core==1.6.2` source | `on_tool_start`/`on_tool_end`/`on_tool_error` — fixed to capture the tool name/input in `on_tool_start` and look it up by `run_id`, since the real `on_tool_end`/`on_tool_error` signatures don't carry a `name`/`inputs` kwarg (an earlier draft assumed they did and silently recorded a placeholder tool name for every span); `on_chain_start` name-change heuristic for handoffs remains best-effort by design (LangChain has no first-class handoff event) — see module docstring |
+| `acp_signals.adapters.langchain.ACPCallbackHandler` | **Verified** against `langchain-core==1.6.2` source | `on_tool_start`/`on_tool_end`/`on_tool_error` — the tool name/input is captured in `on_tool_start` and looked up by `run_id` in the paired end/error callback, since `on_tool_end`/`on_tool_error`'s own signatures don't carry a `name`/`inputs` kwarg; `on_chain_start` name-change heuristic for handoffs is best-effort by design (LangChain has no first-class handoff event) — see module docstring |
 | `acp_signals.adapters.openai_agents.ACPRunHooks` | **Verified** against `openai-agents==0.22.2` source (`agents/lifecycle.py`) | `agents.RunHooks` (`on_handoff`, `on_tool_start`/`on_tool_end`) — signatures match exactly, no changes needed |
 | `acp_signals.adapters.google_adk` (`acp_before_agent_callback`, `acp_before_tool_callback`, `acp_after_tool_callback`) | **Verified** against `google-adk==2.8.0` source | `before_agent_callback` / `before_tool_callback` / `after_tool_callback` — signatures match exactly, no changes needed |
 | `acp_signals.adapters.crewai` (`acp_step_callback`, `acp_task_callback`) | **Verified** against the actual latest published wheel, `crewai==1.15.21` | `Crew(step_callback=..., task_callback=...)` — still current; `TaskOutput.agent` changed type (object → plain `str`) across versions but this adapter's fallback chain already handles both correctly |
 
 **Read each adapter's module docstring before deploying it** — it states exactly which package
-version was checked and how. See `design/v4-implementation-status.md` §5 in the main repo for the
-full verification method (including how CrewAI was checked despite this environment's Python being
-too new for a normal `crewai` install). If a framework changes its hook signature in a future
-release, only that one file needs to change; the `handoff()`/`tool_span()` calls it makes are
-stable.
+version was verified against and how (each adapter was checked by installing or downloading the
+real package and reading its source directly, not from documentation alone). If a framework changes
+its hook signature in a future release, only that one file needs to change; the
+`handoff()`/`tool_span()` calls it makes are stable.
 
 ### Example — LangChain
 

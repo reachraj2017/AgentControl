@@ -7,8 +7,9 @@ framework. Each adapter hooks the framework's OWN documented extension point
 of purpose) and calls ``acp_signals.handoff()`` / ``acp_signals.tool_span()``.
 
 None of these reach into undocumented or private framework internals — that
-is the failure pattern this design deliberately avoids (see
-docs/external-agent-integration-findings.md, Issues 1/2/5).
+is the failure pattern this design deliberately avoids, since passive
+patches against a framework's private internals break whenever those
+internals change.
 
 Submodules are NOT imported here automatically — each has its own optional
 dependency (the target framework), so importing ``acp_signals.adapters``

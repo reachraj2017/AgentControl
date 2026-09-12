@@ -235,9 +235,7 @@ _DDL = [
     ) ENGINE = ReplacingMergeTree(updated_at)
     ORDER BY (agent_role, system_id, policy_id)""",
 
-    # ── v4 architecture: gateway-primary ingest ──────────────────────────────
-    # See design/v2-gateway-capture-m1-ingest.md + design/checkpoint-handoff-ingest.md
-    #
+    # ── Gateway-primary ingest ────────────────────────────────────────────────
     # gateway_call_eval_state is written by M1 (eval-runner), not the gateway —
     # the gateway only needs the table to exist so M1's ingest pipeline can rely
     # on it from container start. Declared here defensively (IF NOT EXISTS);
@@ -440,7 +438,7 @@ class GatewayDB:
             log.warning("log_call failed: %s", e)
 
     # ── Structural events (checkpoint / handoff / tool_span) ─────────────────
-    # design/checkpoint-handoff-ingest.md §4 — same front door as LLM calls.
+    # Same front door as LLM calls.
 
     def log_structural_event(
         self,

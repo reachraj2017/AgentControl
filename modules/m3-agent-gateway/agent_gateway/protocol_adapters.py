@@ -1,7 +1,7 @@
 """Protocol adapters — translate provider-native request/response bodies to and
 from the gateway's internal OpenAI-chat-completions shape.
 
-design/v2-gateway-capture-m1-ingest.md §5.5 (protocol completeness): the
+Protocol completeness: the
 OpenAI Agents SDK defaults to the Responses API, Claude Agent SDK / native
 Anthropic clients use the Messages API, and Google ADK / Gemini clients use
 generateContent. None of these are chat-completions. Rather than duplicate

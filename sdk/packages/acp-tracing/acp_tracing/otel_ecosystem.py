@@ -12,10 +12,9 @@ Why this exists
 the calling framework to attach its own spans to it. That's a reasonable
 default for a framework ACP already knows well (e.g. Google ADK in
 ``opt-demo``), but it does not generalize safely to arbitrary external agent
-frameworks — passive, ACP-owned instrumentation is exactly what broke against
-real external agent systems in production (see
-docs/external-agent-integration-findings.md, Issues 1, 2, 5: wrong redirect
-method, one role header for all agents, and a competing tracing system).
+frameworks — passive, ACP-owned instrumentation is fragile against an
+unfamiliar framework's own client construction, header conventions, and
+competing built-in tracing.
 
 OpenInference (github.com/Arize-ai/openinference) and OpenLLMetry
 (github.com/traceloop/openllmetry) already maintain auto-instrumentors for a
@@ -46,10 +45,8 @@ Usage::
     Traceloop.init(app_name="my-agent", api_endpoint="http://localhost:4318", disable_batch=True)
 
 M1's ingestion pipeline reads OTel GenAI semantic-convention attributes
-(``gen_ai.*``) natively — see design/checkpoint-handoff-ingest.md §7 and
-design/v2-gateway-capture-m1-ingest.md §5.2's ``task_span_names`` /
-attribute-alias work — so spans from either ecosystem are picked up without
-requiring ACP's own span shape.
+(``gen_ai.*``) natively, so spans from either ecosystem are picked up
+without requiring ACP's own span shape.
 """
 
 from __future__ import annotations

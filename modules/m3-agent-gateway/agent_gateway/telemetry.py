@@ -3,13 +3,11 @@
 Emits 'gateway.llm_call' spans to the existing OTel Collector, for Jaeger
 visualization only.
 
-v4 architecture note (design/v2-gateway-capture-m1-ingest.md): this span is
-NO LONGER an eval-trigger input. M1's GatewayIngestPipeline ingests directly
-from `otel.gateway_call_log` (the durable call record written by db.log_call),
-not from this span — that is what fixed the M1/M3 span-name mismatch
-(gateway emitted 'gateway.llm_call', M1's trigger hardcoded 'agent.task').
-Keep emitting it purely so Jaeger still shows gateway calls in its trace UI;
-do not wire anything eval/governance-relevant to depend on this span again.
+This span is NOT an eval-trigger input. M1's GatewayIngestPipeline ingests
+directly from `otel.gateway_call_log` (the durable call record written by
+db.log_call), not from this span. Keep emitting it purely so Jaeger still
+shows gateway calls in its trace UI; do not wire anything eval/governance-
+relevant to depend on this span.
 """
 
 import logging

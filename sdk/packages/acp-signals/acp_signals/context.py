@@ -6,9 +6,8 @@ for the identity fields that ``checkpoint()`` / ``handoff()`` / ``tool_span()``
 attach to every call: ``conversation_id``, ``run_id``, ``system_id``, ``agent_role``.
 
 This intentionally is NOT a global OTel TracerProvider. Registering a global
-tracer competes with a framework's own tracing (this is exactly what broke in
-production against the openai-agents SDK — see
-docs/external-agent-integration-findings.md, Issue 5). A plain contextvar has
+tracer competes with a framework's own tracing — a real conflict for SDKs
+that ship their own competing telemetry. A plain contextvar has
 no such conflict: it's local state the bootstrap sets once per request/turn,
 and adapters or application code can override at finer granularity (e.g. a
 framework's ``on_handoff`` hook re-setting ``agent_role`` when the active

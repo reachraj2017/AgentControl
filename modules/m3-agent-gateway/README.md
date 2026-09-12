@@ -191,24 +191,20 @@ The sub-agent is stateless — it receives a query + optional history, runs its 
 
 ---
 
-## v4: gateway-primary ingest — protocol completeness + checkpoint/handoff/tool-span
+## Gateway-primary ingest — protocol completeness + checkpoint/handoff/tool-span
 
-v4 implements `design/v2-gateway-capture-m1-ingest.md` and
-`design/checkpoint-handoff-ingest.md`. M3 is now the single front door for
-every signal the control plane ingests — LLM traffic in any of four provider
-dialects, plus the non-LLM signals (pre-action gates, sub-agent handoffs,
-tool executions) that never cross the LLM wire. M1 no longer requires an
-in-process tracer to produce eval scores for gateway-routed traffic — it
-ingests directly from `gateway_call_log` and `gateway_structural_events`.
+M3 is the single front door for every signal the control plane ingests — LLM
+traffic in any of four provider dialects, plus the non-LLM signals (pre-action
+gates, sub-agent handoffs, tool executions) that never cross the LLM wire. M1
+does not require an in-process tracer to produce eval scores for
+gateway-routed traffic — it ingests directly from `gateway_call_log` and
+`gateway_structural_events`.
 
-> **Validated against a live stack** — see `design/v4-implementation-status.md`
-> for the full write-up. One real bug was found and fixed during that pass:
-> `/v1/messages` and Gemini `generateContent` were passing bare model names
-> straight through, so LiteLLM couldn't tell which provider to call (real
-> Anthropic/Gemini SDKs have no reason to know ACP's `anthropic/`/`gemini/`
-> prefix convention). Fixed in `protocol_adapters.py` via
-> `_ensure_backend_prefix()` — confirmed working against real OpenAI and
-> Anthropic API calls end-to-end.
+`/v1/messages` and Gemini `generateContent` auto-prefix bare model names with
+the correct backend (`_ensure_backend_prefix()` in `protocol_adapters.py`) —
+real Anthropic/Gemini SDKs send unprefixed model names, and this endpoint
+resolves the provider for you rather than requiring the ACP-internal
+`anthropic/`/`gemini/` prefix convention used on `/v1/chat/completions`.
 
 ### Protocol-complete LLM proxy endpoints
 
@@ -222,7 +218,7 @@ captured automatically.
 | Endpoint | Protocol | Unlocks |
 |---|---|---|
 | `POST /v1/chat/completions` | `openai.chat` | (existing) |
-| `POST /v1/responses` | `openai.responses` | OpenAI Agents SDK default transport, hosted tools (WebSearchTool, FileSearchTool, ComputerTool) — see `docs/external-agent-integration-findings.md` Issue 3 |
+| `POST /v1/responses` | `openai.responses` | OpenAI Agents SDK default transport, hosted tools (WebSearchTool, FileSearchTool, ComputerTool) |
 | `POST /v1/messages` | `anthropic.messages` | Claude Agent SDK, native Anthropic SDK, LangChain-Anthropic |
 | `POST /v1beta/models/{model}:generateContent` | `google.generateContent` | Google ADK native, Gemini SDK |
 | `POST /v1/embeddings` | `embedding` | RAG pipelines, semantic-cache parity |
@@ -239,8 +235,10 @@ the portal Call Log and M1's eval pipeline can filter/group by it.
 
 Same virtual-key auth as the LLM proxy endpoints; write to
 `otel.gateway_structural_events` (`call_type` = `checkpoint` | `handoff` |
-`tool_span`). See `design/checkpoint-handoff-ingest.md` §4 for the full
-rationale.
+`tool_span`). These exist because pre-action gates, sub-agent handoffs, and
+non-LLM tool calls never cross the LLM wire, so no passive capture — gateway
+or OTel — can ever see them; they need an explicit call through the same
+front door as everything else.
 
 **`POST /v1/checkpoint`** — pre-action governance gate. Fronts the same
 `gate_check()` / HITL flow the inline LLM-call enforcement path already uses
@@ -292,11 +290,9 @@ All new columns have defaults — existing rows and readers are unaffected.
 
 ### `emit_call_span` demotion
 
-`telemetry.emit_call_span` (span name `gateway.llm_call`) is **no longer an
+`telemetry.emit_call_span` (span name `gateway.llm_call`) is **not an
 eval-trigger input**. M1's ingest pipeline reads `gateway_call_log` directly
-instead — this is what fixes the M1/M3 span-name mismatch from
-`docs/external-agent-integration-findings.md` Issue 4. The span is still
-emitted for Jaeger trace visualization only.
+instead. The span is still emitted for Jaeger trace visualization only.
 
 ### Known limitations / TODOs (this pass)
 

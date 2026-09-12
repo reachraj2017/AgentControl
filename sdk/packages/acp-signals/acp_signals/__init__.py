@@ -3,8 +3,7 @@ acp-signals — explicit checkpoint / handoff / tool-span client for the AI Cont
 
 Covers the signals that never cross the LLM wire and so can never be captured
 by gateway wire capture or by passive OTel instrumentation: pre-action
-governance gates, sub-agent handoffs, and non-LLM tool executions. See
-design/checkpoint-handoff-ingest.md for the full architecture.
+governance gates, sub-agent handoffs, and non-LLM tool executions.
 """
 
 from acp_signals import adapters, context
