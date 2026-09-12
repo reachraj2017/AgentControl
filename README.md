@@ -54,17 +54,6 @@ The control plane's ingestion model rests on one principle: **the gateway is the
 
 Correlation across all three layers uses one shared primitive: W3C trace context (`trace_id`/`conversation_id`). If a trace already has in-process spans (Layer 2), gateway rows for the same id are merged as metadata only — never double-evaluated.
 
-Structural limits: real-time blocking/routing/caching must stay in the gateway's synchronous path — no passive layer, however standards-based, can gate a call it only observes after the fact. And fully-managed hosted agent runtimes (e.g. server-side tool execution that never leaves a provider's own infrastructure) are structurally out of reach for any capture mechanism that isn't the provider's own log export.
-
-### Known limitations
-
-- **Streaming pass-through is incomplete** for `/v1/responses` and Gemini `:streamGenerateContent` — both currently pass through the underlying chat-completions SSE shape rather than re-dialecting each chunk into the caller's native streaming format.
-- **`/v1/embeddings` bypasses routing/governance/cache** — it uses a lean auth-only path, so A/B tests and routing policies don't apply to embedding calls.
-- **`/v1/checkpoint` blocks synchronously on HITL** rather than returning `hitl_pending` immediately with separate polling.
-- **Gemini `generateContent` routing has not been validated against a real Gemini API key** in this deployment — the request path is implemented, but confirm it yourself before relying on it in production.
-- **`gateway_structural_events` and stored message payload retention have no TTL policy yet** — plan for storage growth if running at volume.
-- **`backend_used` in the Call Log can display the wrong provider name** for a passthrough-routed call whose model already carries an explicit provider prefix (e.g. shows `"openai"` for an Anthropic call) — cosmetic only; the actual LLM dispatch is correct regardless.
-
 ---
 
 ## Four integrated modules
