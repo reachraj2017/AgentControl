@@ -317,3 +317,9 @@ docs/                        Instrumentation guide, user guide, EvalGov playbook
 | `GATEWAY_SEMANTIC_CACHE_TTL_SECONDS` | Optional | Semantic cache TTL (0 = off) |
 | `MONITOR_POLL_SECONDS` | Optional | EvalGov monitor poll interval (default: 60) |
 | `HITL_TIMEOUT_MINUTES` | Optional | Minutes before pending HITL creates a finding (default: 15) |
+
+---
+
+## License
+
+[MIT](LICENSE) © 2026 Raj Ramanujam
