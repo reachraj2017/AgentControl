@@ -6,6 +6,8 @@ The platform combines a 68-metric eval pipeline, a 13-category governance engine
 
 ---
 
+![ACP Call Log](ACP-calllog.png)
+
 ## The core idea
 
 Multi-agent systems make hundreds or thousands of LLM calls — across orchestrators, specialists, tools, and sub-agents. Without a control plane, those calls are invisible: you don't know what they cost, whether they're correct, whether agents are behaving within policy, or when something breaks.
