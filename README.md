@@ -313,4 +313,4 @@ docs/                        Instrumentation guide, user guide, EvalGov playbook
 
 ## License
 
-[MIT](LICENSE) © 2026 Raj Ramanujam
+[MIT](LICENSE) © 2026 reachraj2017
