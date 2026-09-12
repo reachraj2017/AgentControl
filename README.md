@@ -1,4 +1,4 @@
-# AgenticAI Control Plane Gateway (v4)
+# AgentControl: AgenticAI Control Plane Gateway
 
 A production-grade control plane built around the **Agent Gateway** — the single point through which every LLM call and agent interaction in your multi-agent system flows. Route your agents through it once, and you get observability, evaluation, governance, enforcement, and conversational intelligence automatically, with no changes to your agent logic.
 
