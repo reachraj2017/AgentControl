@@ -16,7 +16,7 @@ st.sidebar.title("⚡ Agent Gateway")
 api.sidebar_status()
 
 st.title("⚡ Agent Gateway")
-st.caption("Universal LLM control plane — routing, enforcement, caching, rate limiting, observability.")
+st.caption("Universal Agent control plane - routing, enforcement, caching, rate limiting, observability.")
 
 # ── Window controls ───────────────────────────────────────────────────────────
 

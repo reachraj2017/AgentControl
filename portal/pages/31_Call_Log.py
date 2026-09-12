@@ -35,7 +35,7 @@ st.sidebar.title("⚡ Agent Gateway")
 api.sidebar_status()
 
 st.title("📋 Call Log")
-st.caption("Every LLM call intercepted by the gateway — primary, shadow, blocked, and errors.")
+st.caption("Every agent call intercepted by the gateway — primary, shadow, blocked, and errors.")
 
 # ── Filters ───────────────────────────────────────────────────────────────────
 
