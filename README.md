@@ -134,8 +134,6 @@ The control plane doesn't just watch your agents — it turns its own configurat
 3. **Human-gated apply.** Every proposal sits in the **Proposed Changes** portal page until an operator approves or rejects it. Approval **auto-applies** the change directly to the gateway — no redeploy, no code change, live in seconds. Rejections are kept with the reasoning for the record.
 4. **Re-measure.** The newly applied routing policy, prompt, or shadow rule immediately starts producing new gateway calls, which flow straight back through M1 evaluation — closing the loop and generating the evidence the next cycle proposes against.
 
-This is evidence-driven and operator-gated today, not autonomous: nothing is applied to the live gateway without a human clicking approve. The building blocks for tightening that loop further — a scheduled trigger instead of an on-demand chat prompt, tiered auto-approval for low-risk change types, and an automatic bake/rollback window after an applied change — already exist as the same tools and tables described above; only the scheduling and policy layer around them would need to be added.
-
 ---
 
 ## Deploy
