@@ -2,7 +2,7 @@
 
 A production-grade control plane built around the **Agent Gateway** — the single point through which every LLM call and agent interaction in your multi-agent system flows. Route your agents through it once, and you get observability, evaluation, governance, enforcement, and conversational intelligence automatically, with no changes to your agent logic.
 
-The platform combines a 68-metric eval pipeline, a 13-category governance engine, gateway routing/caching/A-B/shadow/traffic management, and an EvalGov coordinator + sub-agents behind one portal — all fed by the gateway-primary ingestion model described below.
+The platform combines a 68-metric eval pipeline, a 13-category governance engine, gateway routing/caching/A-B/shadow/traffic management, and an EvalGov coordinator + sub-agents behind one portal — all fed by the gateway-primary ingestion model described below. It also closes the loop on itself: shadow/A-B evidence feeds proposed routing and prompt changes that an operator approves and the gateway auto-applies — a self-improving control plane, not just an observed one (see [**The self-improving loop**](#the-self-improving-loop)).
 
 ---
 
@@ -19,6 +19,7 @@ The AgenticAI Control Plane solves this by placing the **Agent Gateway** at the 
 - **Enforces** governance policies — routing rules, rate limits, budget caps, circuit breakers — in real time (M2, M3)
 - **Detects anomalies** proactively and surfaces them with AI-generated root cause analysis (M4)
 - **Responds to natural language queries** about any agent's behavior, cost, quality, or compliance (M4)
+- **Proposes and applies improvements** — evidence-backed routing and prompt changes, gated by operator approval (M3, M4)
 
 ```
 Your Multi-Agent System
@@ -121,6 +122,19 @@ The conversational interface to the entire control plane. Ask anything about any
 **Proactive monitor** — a background loop runs 15 checks every 60 seconds across governance signals, gateway metrics, and quality/cost trends. When an anomaly is detected, an LLM generates a root cause analysis and stores it as a finding. Findings appear in the portal and are surfaced at the start of EvalGov conversations.
 
 **MCP server** — exposes the coordinator's tools via the Model Context Protocol, so Claude Code, Claude Desktop, and any MCP-compatible client can query the control plane directly.
+
+---
+
+## The self-improving loop
+
+The control plane doesn't just watch your agents — it turns its own configuration into something the same evidence-and-evaluation machinery can improve, with a human approving every change that actually lands.
+
+1. **Generate evidence.** Shadow mode (M3) runs a candidate model, route, or prompt against live traffic with zero production impact; A/B tests split real traffic across variants. Both are scored by the same 68-metric eval pipeline (M1) — so every candidate carries real quality, cost, and latency numbers, not a guess.
+2. **Detect and propose.** EvalGov's proactive monitor (M4) runs continuous checks over governance, gateway, and quality/cost trends; the gateway agent (M3) compares shadow/A-B results directly. When either finds a pattern worth acting on — a losing variant, a regressing agent, a cheaper route at equal quality — it submits a **proposed change** (routing policy, shadow rule, or prompt modification) to the gateway's change queue, with the eval evidence attached as justification.
+3. **Human-gated apply.** Every proposal sits in the **Proposed Changes** portal page until an operator approves or rejects it. Approval **auto-applies** the change directly to the gateway — no redeploy, no code change, live in seconds. Rejections are kept with the reasoning for the record.
+4. **Re-measure.** The newly applied routing policy, prompt, or shadow rule immediately starts producing new gateway calls, which flow straight back through M1 evaluation — closing the loop and generating the evidence the next cycle proposes against.
+
+This is evidence-driven and operator-gated today, not autonomous: nothing is applied to the live gateway without a human clicking approve. The building blocks for tightening that loop further — a scheduled trigger instead of an on-demand chat prompt, tiered auto-approval for low-risk change types, and an automatic bake/rollback window after an applied change — already exist as the same tools and tables described above; only the scheduling and policy layer around them would need to be added.
 
 ---
 
