@@ -46,7 +46,7 @@ This directly removes the Jev design's "network overhead to an external API" ope
 
 ### 3.2 M1 — eval judges, same candidates as the Jev design
 
-Same analysis as `jev-system-one-model-integration.md` §3.1: bounded metrics (PII detection, faithfulness, relevance, tool-selection/argument accuracy, hallucination, bias, toxicity) are candidates for a decider-backed evaluator, implemented the same way — a new class under `evaluators/llm_judges/`, run as a shadow-only evaluator initially, validated against the incumbent LLM judge via `compare_shadow_vs_primary` before any traffic shifts.
+Same analysis as `jev-system-one-model-integration.md` §3.1: bounded metrics (PII detection, faithfulness, relevance, tool-selection/argument accuracy, hallucination, bias, toxicity) are candidates for a decider-backed evaluator, implemented the same way — a new class under `evaluators/llm_judges/`, run as an additional judge initially, validated against the incumbent LLM judge by dual-scoring the same calls (see §4) before any traffic shifts.
 
 One correction worth noting: `ToolSelectionEvaluator`/`ToolArgumentAccuracyEvaluator` (`modules/m1-observability-eval/eval_runner/evaluators/deterministic/`) are currently **deterministic** evaluators, not LLM judges — they compare against an expected tool/argument set directly. A decider model isn't a replacement for those; it's a candidate for the metrics that are genuinely LLM-judged today (faithfulness, relevance, PII, hallucination, bias/toxicity, instruction-following).
 
@@ -84,7 +84,7 @@ Unchanged from the Jev design: EvalGov conversational answers, prompt-mod author
 
 ## 4. Validation approach
 
-Same mechanism proposed in `jev-system-one-model-integration.md` §4 — shadow the decider against the incumbent LLM judge via `compare_shadow_vs_primary`, measure agreement rate and score-delta distribution on this platform's own traffic, and only propose a change through the existing `/gateway/changes` queue once that evidence clears a bar. The published JevBench numbers (77.9% accuracy, Brier 0.280) are a reasonable prior to decide *which* metrics are worth trialing first — favor ones closer to the benchmark's own task mix (classification/triage-shaped, like PII detection and routing-style decisions) over ones that need deeper context (multi-turn metrics) as the first trial.
+Same mechanism proposed in `jev-system-one-model-integration.md` §4 (corrected there from an earlier draft): `compare_shadow_vs_primary` compares gateway shadow-*routed* model calls against primary traffic — it's not the right tool for comparing two judge implementations scoring the same output. Instead, dual-score the same calls — run the decider-backed judge alongside the incumbent LLM judge on the calls already sampled for judging, join both score sets by `span_id`/`trace_id`, and measure agreement rate and score-delta distribution directly on this platform's own traffic. Only propose a change through the existing `/gateway/changes` queue once that evidence clears a bar. The published JevBench numbers (77.9% accuracy, Brier 0.280) are a reasonable prior to decide *which* metrics are worth trialing first — favor ones closer to the benchmark's own task mix (classification/triage-shaped, like PII detection and routing-style decisions) over ones that need deeper context (multi-turn metrics) as the first trial.
 
 ---
 
@@ -104,7 +104,7 @@ Same mechanism proposed in `jev-system-one-model-integration.md` §4 — shadow 
 
 ### Phase 2 — Shadow evaluator, M1
 - [ ] Same as Jev design Phase 1: new evaluator class, shadow-only, starting with PII detection and one score-type metric.
-- [ ] Compare against incumbent LLM judge via `compare_shadow_vs_primary`.
+- [ ] Compare against incumbent LLM judge by dual-scoring the same calls and joining on `span_id`/`trace_id`.
 
 ### Phase 3 — Checkpoint pre-filter pilot, M2
 - [ ] Client-side pre-filter in `acp-signals` (§3.3 option 1) for one well-understood action type, with full `checkpoint()` still running in parallel (shadow, not replacing) to measure agreement before trusting the short-circuit.

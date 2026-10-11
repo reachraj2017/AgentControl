@@ -26,7 +26,7 @@ Goal of this design: identify where in the current architecture a System 1 model
 ### Goals
 1. Identify every existing structured (classification/score/bool) LLM call in the pipeline that is a plausible Jev candidate, distinct from the generation-heavy calls that are not.
 2. Design the integration as a pluggable evaluator/judge, not a replacement of the existing LLM-judge path — the platform must work identically with Jev absent.
-3. Reuse the existing shadow-mode/A-B/`compare_shadow_vs_primary` machinery (M3) to validate agreement rate and score parity against current judges before any traffic shifts over, rather than trusting vendor benchmarks.
+3. Validate agreement rate and score parity against current judges by scoring the same calls with both, before any traffic shifts over — rather than trusting vendor benchmarks.
 4. Keep the blast radius of a bad Jev response bounded — never let it be the sole decision-maker for anything in Tier 3 of the autonomy design (`design-backlog/autonomous-self-improvement-loop.md`) without the same evidence bar applied to any other change.
 
 ### Non-goals
@@ -66,14 +66,14 @@ EvalGov's conversational answers, prompt-mod authoring/rewriting, and any root-c
 
 ---
 
-## 4. Validation approach — dogfooding the platform's own shadow/A-B infrastructure
+## 4. Validation approach — dual-score the same calls, then feed the result into the existing change queue
 
-Rather than trusting vendor-published latency/cost/accuracy claims, treat a Jev-backed judge as just another model behind the existing evidence machinery already documented in `README.md`'s "The self-improving loop":
+Note: `compare_shadow_vs_primary` (`modules/m3-agent-gateway/gateway_agent/tools.py:330`) compares gateway shadow-*routed* model calls against primary traffic — it answers "is this candidate model/route better," not "do two judge implementations agree on the same output." Validating a judge swap needs a different, simpler mechanism:
 
-1. Stand up the Jev-backed evaluator as a **shadow** judge — it scores the same calls the current LLM judges already score, writing to a parallel/tagged set of scores, without affecting production eval results or any downstream gate.
-2. Use `compare_shadow_vs_primary` (already used by the gateway agent, `modules/m3-agent-gateway/gateway_agent/tools.py`) to measure agreement rate and score-delta distribution between the Jev judge and the incumbent LLM judge across a representative volume of calls.
+1. Stand up the Jev-backed evaluator as an **additional** judge — for the already-sampled subset of calls the current LLM judges score, it scores the *same* span too, writing to a parallel/tagged set of scores (e.g. a distinct `evaluator`/`name`), without affecting production eval results or any downstream gate.
+2. Join both score sets by `span_id`/`trace_id` and measure agreement rate and score-delta distribution directly — a straightforward query over `eval_scores`, not a reuse of the gateway's shadow-routing infrastructure.
 3. Only after that evidence clears a bar (to be defined — e.g. agreement within a configured tolerance on a minimum sample size) does a judge-swap or sampling-rate change become a candidate for the **proposed change** queue (`/gateway/changes`) — the same propose → operator-approve → apply path every other change in this platform goes through, per `README.md`'s self-improving-loop section.
-4. This is a clean secondary validation of the self-improving loop's generality: the mechanism designed for routing/prompt evidence turns out to also be the right way to evaluate a judge-model swap, with no new infrastructure required.
+4. This still ties into the self-improving loop's existing apply mechanism at the proposal/approval step (step 3) — it just needs its own small comparison query to produce the evidence, rather than reusing `compare_shadow_vs_primary` for a purpose it isn't built for.
 
 ---
 
@@ -91,7 +91,7 @@ Rather than trusting vendor-published latency/cost/accuracy claims, treat a Jev-
 ### Phase 1 — Shadow evaluator, M1 only
 - [ ] New evaluator class under `evaluators/llm_judges/` calling Jev's `/v1/systemone` endpoint, implementing the existing judge interface.
 - [ ] Wire it as an additional shadow-only evaluator for a small subset of metrics (start with PII detection and one or two score-type metrics like faithfulness/relevance) — not a replacement.
-- [ ] Confirm scores land in a form `compare_shadow_vs_primary`-equivalent tooling can read against the incumbent judge's scores for the same calls.
+- [ ] Confirm scores land in a form a direct `span_id`/`trace_id` join against the incumbent judge's scores for the same calls can read.
 
 ### Phase 2 — Evidence review
 - [ ] Run the shadow comparison over a representative volume/time window.
