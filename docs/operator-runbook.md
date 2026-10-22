@@ -290,6 +290,31 @@ Without a role, routing policies, governance checks, and traffic management cann
 
 ---
 
+## Decider Comparison tab shows no data for an enabled track
+
+**What it means:** `DECIDER_ENABLED` or `STRANDS_DECIDER_ENABLED` is `true`, the allowlist includes the metric you're looking at, but the comparison tab's tables stay empty for that track.
+
+**Common causes:**
+- The decision model's process (Ollama, or `strands-decider serve`) isn't actually running.
+- The base-URL env var (`DECIDER_BASE_URL` / `STRANDS_DECIDER_BASE_URL`) points at `localhost` when it's reached from inside a container — it needs `host.docker.internal` for a native host process, or the containers can't reach it at all. This fails silently: the eval runner's per-evaluator try/except skips writing a row on any connection failure, so nothing in the logs looks obviously broken unless you check `eval-runner` container logs directly for `evaluator_failed` entries naming the decider evaluator.
+- (Strands Decider specifically) the native server process crashed and nothing restarted it — see below.
+
+**Diagnose:**
+```bash
+# From the host, confirm the process answers
+curl -X POST http://localhost:<port>/v1/systemone -d '{"state":"test","questions":{"x":{"type":"noul","instructions":"ok"}}}'
+# From inside the eval-runner container, confirm it's reachable at the configured URL
+docker compose exec eval-runner python3 -c "import httpx; print(httpx.post('<DECIDER_BASE_URL or STRANDS_DECIDER_BASE_URL>/v1/systemone', json={'state':'test','questions':{'x':{'type':'noul','instructions':'ok'}}}, timeout=10).status_code)"
+docker compose logs eval-runner --since 10m | grep evaluator_failed
+```
+
+**Resolve:**
+- If the process isn't running: start it (`ollama serve`, or `strands-decider serve <model> --port 8000`).
+- If it's running but unreachable from the container: fix the base-URL env var and restart `eval-runner` to pick up the change.
+- (Strands Decider) a known reliability issue observed under concurrent multi-agent load: the native server can crash with an Apple Metal/MPS command-buffer assertion failure. Serving with `--no-prefix-cache` reduces how often this happens but doesn't eliminate it. If it crashes, just restart the process — no data is corrupted, calls during the outage simply didn't get a Strands score. For repeated crashes, consider a small watchdog loop that polls `/v1/systemone` and restarts the process on failure.
+
+---
+
 ## General escalation path
 
 | Severity | Response time | Who acts |

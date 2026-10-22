@@ -72,6 +72,25 @@ Time-series view of eval scores across all agents and metrics, independent of an
 - `cost_usd` trending upward without a corresponding quality improvement.
 - If you just instrumented a new agent and expect scores but see none yet: check **M3 → Call Log** first to confirm calls are even reaching the gateway, then give it up to ~90 seconds (LLM-judge evaluation is a sequential cascade, not instant) before assuming something's wrong.
 
+### Decider Comparison
+
+Shadow comparison between the incumbent LLM judge and up to two local decision models — Ollama (`nimble`/`tev1`) and/or Strands Decider 2B — for the LLM-judged metrics, run on the same calls. Off by default; see the README's "Decision-model judges" section for enabling either. Scores from each decision model land under their own suffixed metric name (`__decider` for Ollama, `__strands` for Strands Decider) and never affect any other number shown elsewhere in the portal.
+
+**What you can do:**
+- A status banner at the top of each track's section shows whether it's enabled and which metrics are allowlisted.
+- Pick a metric from the dropdown to see **tokens, cost, and latency** for both the incumbent and that decision model, side by side.
+- Scroll to **side-by-side averages — all metrics** for a one-screen view of every metric's score/cost/latency delta at once.
+- Scroll to **per-call agreement** for a row-by-row table — same call, both scores, both reasoning strings, both costs/latencies — plus an "agreement rate" (% of calls within 0.15 of each other).
+
+**Reading the results:**
+- Cost and latency deltas are the easy win — both decision models are typically far cheaper and faster than the incumbent judge, and this tab is where you see that concretely for your own traffic rather than taking a vendor's benchmark on faith.
+- Score agreement is the part that needs judgment, not just a glance: a decision model that's close to the incumbent on one metric can diverge meaningfully on another. Check the agreement rate per metric before deciding anything is "safe to shift."
+- Neither decision model is a drop-in replacement for the incumbent judge, and the two decision models don't necessarily agree with each other either — treat each metric/model pairing as its own question.
+
+**What to watch for:**
+- If a track's status banner says enabled but the tables are empty, the native process behind it (Ollama or `strands-decider serve`) may not be reachable from the eval runner container — confirm it's running and that the base-URL env var uses `host.docker.internal` rather than `localhost` if it's a native host process.
+- Strands Decider's native server has been observed to crash under concurrent load on Mac (Metal/MPS assertion failures) — if its section goes empty after working fine, check whether the process is still running and restart it if not.
+
 ---
 
 ## M2 — Governance & Enforcement

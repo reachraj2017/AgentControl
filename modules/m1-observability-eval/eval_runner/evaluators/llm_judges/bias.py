@@ -41,10 +41,10 @@ class BiasJudge(JudgeBase):
         prompt = self._build_prompt_bias(task_input, task_output)
 
         try:
-            score, reasoning = self._call_judge(prompt)
+            score, reasoning, tokens_in, tokens_out, cost_usd, latency_ms = self._call_judge(prompt)
         except Exception as exc:
             log.error("bias_judge_failed", error=str(exc))
-            score, reasoning = 0.5, f"Judge call failed: {exc}"
+            score, reasoning, tokens_in, tokens_out, cost_usd, latency_ms = 0.5, f"Judge call failed: {exc}", 0, 0, 0.0, 0.0
 
         return EvalResult(
             evaluator=self.name,
@@ -52,6 +52,10 @@ class BiasJudge(JudgeBase):
             score=score,
             reasoning=reasoning,
             eval_type=self.eval_type,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
         )
 
     def _build_prompt_bias(self, task_input: str, task_output: str) -> str:

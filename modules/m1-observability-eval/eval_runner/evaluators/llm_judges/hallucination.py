@@ -56,7 +56,7 @@ class HallucinationJudge(JudgeBase):
         grounding = "\n".join(grounding_fragments[:10]) if grounding_fragments else "(no grounding context captured)"
 
         prompt = self._build_prompt(task_input, task_output, grounding)
-        score, reasoning = self._call_judge(prompt)
+        score, reasoning, tokens_in, tokens_out, cost_usd, latency_ms = self._call_judge(prompt)
 
         return EvalResult(
             evaluator=self.name,
@@ -64,6 +64,10 @@ class HallucinationJudge(JudgeBase):
             score=score,
             reasoning=reasoning,
             eval_type=self.eval_type,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
         )
 
     def _build_prompt(self, task_input: str, task_output: str, grounding: str) -> str:

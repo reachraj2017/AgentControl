@@ -92,6 +92,13 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       JUDGE_MODEL: ${JUDGE_MODEL:-anthropic/claude-haiku-4-5-20251001}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
+      DECIDER_ENABLED: ${DECIDER_ENABLED:-false}
+      DECIDER_BASE_URL: ${DECIDER_BASE_URL:-http://localhost:11434}
+      DECIDER_MODEL: ${DECIDER_MODEL:-nimble}
+      DECIDER_METRICS: ${DECIDER_METRICS:-}
+      STRANDS_DECIDER_ENABLED: ${STRANDS_DECIDER_ENABLED:-false}
+      STRANDS_DECIDER_BASE_URL: ${STRANDS_DECIDER_BASE_URL:-http://localhost:8000}
+      STRANDS_DECIDER_METRICS: ${STRANDS_DECIDER_METRICS:-}
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -306,6 +313,11 @@ services:
       GATEWAY_URL: http://agent-gateway:8080
       GATEWAY_MASTER_KEY: ${GATEWAY_MASTER_KEY:-}
       GATEWAY_AUTH_ENABLED: ${GATEWAY_AUTH_ENABLED:-false}
+      DECIDER_ENABLED: ${DECIDER_ENABLED:-false}
+      DECIDER_MODEL: ${DECIDER_MODEL:-nimble}
+      DECIDER_METRICS: ${DECIDER_METRICS:-}
+      STRANDS_DECIDER_ENABLED: ${STRANDS_DECIDER_ENABLED:-false}
+      STRANDS_DECIDER_METRICS: ${STRANDS_DECIDER_METRICS:-}
       M1_ENABLED: "true"
       M2_ENABLED: "true"
       M3_ENABLED: "true"

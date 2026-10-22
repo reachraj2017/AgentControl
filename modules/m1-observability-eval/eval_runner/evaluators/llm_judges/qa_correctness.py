@@ -57,7 +57,7 @@ class QACorrectnessJudge(JudgeBase):
         )
 
         try:
-            score, reasoning = self._call_judge(prompt)
+            score, reasoning, *_ = self._call_judge(prompt)
         except Exception as exc:
             log.error("qa_correctness_judge_failed", error=str(exc))
             score, reasoning = 0.5, f"Judge call failed: {exc}"

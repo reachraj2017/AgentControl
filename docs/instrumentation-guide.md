@@ -203,6 +203,8 @@ Rate limits, budgets, and model allowlists on your virtual key apply the moment 
 5. If multi-turn: wait past 60 seconds of conversation idle time and check for a separate conversation-level score (requires ≥2 turns sharing the same `X-Gateway-Conversation-Id`).
 6. If anything looks duplicated, missing, or inflated, that token-count comparison from step 4 is where to start — not the code.
 
+If the control plane operator has enabled one or both optional decision-model judges (`DECIDER_ENABLED=true` for Ollama and/or `STRANDS_DECIDER_ENABLED=true` for Strands Decider 2B — see the README's "Decision-model judges" section), your calls will also get extra scores for the LLM-judged metrics, under `<metric>__decider` and/or `<metric>__strands`-suffixed names, visible in **Eval Measurements → 🧪 Decider Comparison** (including tokens/cost/latency for each). This is entirely operator-side config — nothing to set up on the agent side, and it never changes any score your integration already produces.
+
 Direct ClickHouse queries if you want to check without the portal:
 ```sql
 SELECT agent_role, tokens_in, tokens_out FROM otel.gateway_call_log WHERE trace_id = '<your trace_id>';

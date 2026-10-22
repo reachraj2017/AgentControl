@@ -95,6 +95,35 @@ Every call the gateway logs is automatically picked up by the eval runner and ev
 
 Scores are stored in ClickHouse and surfaced in the portal with time-series trend views, regression detection, and per-agent breakdowns. The eval agent (M1 sub-agent) answers natural language questions about scores, benchmarks, regressions, and compliance.
 
+**Decision-model judges (optional)** — for the metrics that are genuinely LLM-judged (bias, toxicity, coherence, conciseness, relevance, faithfulness, hallucination, instruction following), M1 can additionally score the same call with a local **decision model** — a different architecture from a conversational LLM: one forward pass, no generation loop, a calibrated confidence (and full probability distribution) on every answer, and typically sub-second latency instead of a multi-second judge call. Decision models run *alongside* the existing judge, never in place of it — scores land under their own suffixed metric name, so nothing already displayed anywhere in the portal changes when either is turned on.
+
+Two independent, pluggable tracks, both speaking the same `/v1/systemone` typed-question API — enable either, both, or neither:
+
+- **Ollama** — serving `nimble` or `tev1` (Ollama ≥ 0.35). Scores land under `<metric>__decider`.
+  ```bash
+  DECIDER_ENABLED=true
+  DECIDER_BASE_URL=http://localhost:11434   # http://host.docker.internal:11434 if Ollama runs natively on Mac
+  DECIDER_MODEL=nimble                      # or tev1
+  DECIDER_METRICS=bias_score,toxicity_score,coherence,conciseness,relevance,faithfulness,hallucination_score,instruction_following
+  ```
+  Requires the chosen model pulled first (`ollama pull nimble`).
+
+- **Strands Decider 2B** (Amazon Strands Labs) — served by its own `strands-decider serve <model> --port 8000` process, not Ollama. Scores land under `<metric>__strands`.
+  ```bash
+  STRANDS_DECIDER_ENABLED=true
+  STRANDS_DECIDER_BASE_URL=http://localhost:8000   # http://host.docker.internal:8000 from inside a container
+  STRANDS_DECIDER_METRICS=bias_score,toxicity_score,coherence,conciseness,relevance,faithfulness,hallucination_score,instruction_following
+  ```
+  Requires `pip install strands-decider` and the model pulled on first `serve` (cached after).
+
+On a Mac, no container runtime can reach the Apple GPU for either backend — run them as native host processes (not in Docker) for Metal acceleration, and use `http://host.docker.internal:<port>` so the containerized eval runner can reach them. See both comparisons — tokens/cost/latency, side-by-side averages, and a per-call agreement table — in the portal's **Eval Measurements → 🧪 Decider Comparison** tab.
+
+**What we found testing both against a real multi-agent pipeline** (orchestrator → searcher → summarizer → translator, ~100+ scored calls per track): both decision models ran **~5–10x faster** than the incumbent LLM judge (Ollama/Nimble: ~495ms vs. 1670ms; Strands Decider 2B: ~176ms vs. 1670ms) at **$0/call** vs. the incumbent's ~$0.001/call — but neither agrees with the incumbent uniformly across metrics, and the two decision models don't even agree with *each other*. Ollama/Nimble ran **more lenient** than the incumbent on coherence, relevance, instruction-following, conciseness, and faithfulness, while tracking closely on bias and toxicity. Strands Decider 2B showed close to the opposite shape — **more conservative** than the incumbent on every metric tested, most sharply on bias, toxicity, and conciseness. Takeaway: treat a decision model as a fast, free second opinion to validate per-metric with the comparison tab's agreement rate — not a drop-in replacement, and not interchangeable with each other.
+
+**A reliability note from that testing**: Ollama's decision-model serving was stable throughout. Strands Decider 2B's native server crashed repeatedly under concurrent multi-agent load (Apple Metal/MPS command-buffer assertion failures) — serving with `--no-prefix-cache` reduced the frequency substantially but didn't eliminate it; a crashed process leaves `STRANDS_DECIDER_BASE_URL` pointing at nothing, and calls fail silently (no score written, nothing else disrupted) until it's restarted. If you run it, watch for this under load.
+
+**Is this worth turning on?** Depends on what you're optimizing for. If you want to judge every call instead of a sample (cost-prohibitive with a conversational LLM judge), a decision model's speed/cost makes that practical — check the comparison tab's agreement rate for the metrics and model you care about before raising `online_llm_judge_rate` on the strength of it alone. If you need the judge to catch genuinely subtle or adversarial cases, don't treat decider agreement as sufficient validation on its own. It's additive and reversible either way: turning either off removes nothing the incumbent judge already computed, and existing comparison data stays in ClickHouse.
+
 ---
 
 ### M2 — Governance & Enforcement
@@ -320,6 +349,13 @@ docs/                        Instrumentation guide, user guide, EvalGov playbook
 | `GATEWAY_SEMANTIC_CACHE_TTL_SECONDS` | Optional | Semantic cache TTL (0 = off) |
 | `MONITOR_POLL_SECONDS` | Optional | EvalGov monitor poll interval (default: 60) |
 | `HITL_TIMEOUT_MINUTES` | Optional | Minutes before pending HITL creates a finding (default: 15) |
+| `DECIDER_ENABLED` | Optional | `true` to shadow-score LLM-judged metrics with a local Ollama decision model (default: `false`) |
+| `DECIDER_BASE_URL` | Optional | Ollama instance URL (default: `http://localhost:11434`) |
+| `DECIDER_MODEL` | Optional | Which Ollama decision model to use — `nimble` or `tev1` (default: `nimble`) |
+| `DECIDER_METRICS` | Optional | Comma-separated allowlist of metrics to shadow-score via Ollama (default: empty = none) |
+| `STRANDS_DECIDER_ENABLED` | Optional | `true` to shadow-score LLM-judged metrics with a local Strands Decider 2B process (default: `false`) |
+| `STRANDS_DECIDER_BASE_URL` | Optional | Strands Decider `serve` instance URL (default: `http://localhost:8000`) |
+| `STRANDS_DECIDER_METRICS` | Optional | Comma-separated allowlist of metrics to shadow-score via Strands Decider (default: empty = none) |
 
 ---
 

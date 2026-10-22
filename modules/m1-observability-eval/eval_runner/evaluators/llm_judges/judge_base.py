@@ -10,6 +10,7 @@ Supports any provider via LiteLLM:
 
 import json
 import os
+import time
 from typing import Optional
 
 import structlog
@@ -57,17 +58,23 @@ class JudgeBase(BaseEvaluator):
         retry=retry_if_exception_type(Exception),
         reraise=False,
     )
-    def _call_judge(self, prompt: str) -> tuple[float, str]:
+    def _call_judge(self, prompt: str) -> tuple[float, str, int, int, float, float]:
         """
         Call the configured judge model with a scoring prompt.
 
+        Tokens/cost/latency are returned, not stashed on `self` — judge
+        instances are singletons shared across every evaluate() call, and
+        concurrent traces run pipeline.run() in separate threads
+        (asyncio.to_thread), so instance attributes here would race.
+
         Returns:
-            (score: float, reasoning: str)
+            (score, reasoning, tokens_in, tokens_out, cost_usd, latency_ms)
         """
         import litellm
 
         model = self._judge_model
         try:
+            start = time.monotonic()
             response = litellm.completion(
                 model=model,
                 max_tokens=512,
@@ -77,6 +84,19 @@ class JudgeBase(BaseEvaluator):
                 ],
                 **_litellm_kwargs(model),
             )
+            latency_ms = (time.monotonic() - start) * 1000
+
+            usage = getattr(response, "usage", None)
+            tokens_in = int(getattr(usage, "prompt_tokens", 0) or 0)
+            tokens_out = int(getattr(usage, "completion_tokens", 0) or 0)
+            try:
+                cost_usd = float(litellm.completion_cost(completion_response=response) or 0.0)
+            except Exception:
+                # Self-hosted/local models (e.g. ollama/...) have no metered
+                # price in litellm's table — 0.0 is the correct answer, not
+                # a failure.
+                cost_usd = 0.0
+
             raw_text = (response.choices[0].message.content or "").strip()
 
             # Strip markdown code fences if present
@@ -89,11 +109,16 @@ class JudgeBase(BaseEvaluator):
             score = self.clamp_score(float(parsed.get("score", 0.5)))
             reasoning = str(parsed.get("reasoning", ""))
             log.debug("judge_scored", model=model, score=score)
-            return score, reasoning
+            return score, reasoning, tokens_in, tokens_out, cost_usd, latency_ms
 
         except json.JSONDecodeError as exc:
             log.warning("judge_json_parse_error", error=str(exc))
-            return 0.5, "Parse error: could not decode judge response as JSON"
+            # The API call itself succeeded — tokens/cost/latency are real,
+            # only the response's content failed to parse as JSON.
+            return (
+                0.5, "Parse error: could not decode judge response as JSON",
+                tokens_in, tokens_out, cost_usd, latency_ms,
+            )
         except Exception as exc:
             log.error("judge_call_failed", model=model, error=str(exc))
             raise  # Let tenacity retry

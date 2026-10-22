@@ -13,12 +13,68 @@ import yaml
 
 from evaluators import EVALUATOR_MAP
 from evaluators.base import EvalResult
+from evaluators.llm_judges.decider_base import decider_enabled_for
+from evaluators.llm_judges.decider_strands_base import strands_decider_enabled_for
 from tracing.eval_tracer import eval_pipeline_span, eval_score_span
 
 log = structlog.get_logger(__name__)
 
 # Default config path relative to this file
 _DEFAULT_CONFIG = Path(__file__).parent.parent / "config" / "evaluator_config.yaml"
+
+# base (incumbent) evaluator name -> (base metric, decision-model-backed
+# counterpart name, run against Ollama by default — see decider_base.py).
+# Gated at runtime by decider_enabled_for(<base metric>). This covers all
+# single-input-shape LLM judges; rubric/context-dependent judges and
+# multi-turn judges (conversation_eval.py's separate pipeline) don't have a
+# decider counterpart yet.
+_DECIDER_COUNTERPART = {
+    "bias_judge":                 ("bias_score",              "bias_judge_decider"),
+    "toxicity_judge":              ("toxicity_score",           "toxicity_judge_decider"),
+    "coherence_judge":             ("coherence",                "coherence_judge_decider"),
+    "conciseness_judge":           ("conciseness",              "conciseness_judge_decider"),
+    "relevance_judge":             ("relevance",                "relevance_judge_decider"),
+    "faithfulness_judge":          ("faithfulness",             "faithfulness_judge_decider"),
+    "hallucination_judge":         ("hallucination_score",      "hallucination_judge_decider"),
+    "instruction_following_judge": ("instruction_following",    "instruction_following_judge_decider"),
+}
+
+# Second, independent decision-model track (Strands Decider 2B, a native
+# process — separate from the Ollama track above, both can run at once).
+# Same base-metric keys, different counterpart evaluator names.
+_STRANDS_DECIDER_COUNTERPART = {
+    "bias_judge":                 ("bias_score",              "bias_judge_strands"),
+    "toxicity_judge":              ("toxicity_score",           "toxicity_judge_strands"),
+    "coherence_judge":             ("coherence",                "coherence_judge_strands"),
+    "conciseness_judge":           ("conciseness",              "conciseness_judge_strands"),
+    "relevance_judge":             ("relevance",                "relevance_judge_strands"),
+    "faithfulness_judge":          ("faithfulness",             "faithfulness_judge_strands"),
+    "hallucination_judge":         ("hallucination_score",      "hallucination_judge_strands"),
+    "instruction_following_judge": ("instruction_following",    "instruction_following_judge_strands"),
+}
+
+
+def _append_decider_evaluators(evaluator_names: list[str]) -> list[str]:
+    """Append any enabled decider-backed counterparts for evaluators already selected.
+
+    Both decision-model tracks (Ollama, Strands Decider) are checked
+    independently per base evaluator — either, both, or neither can be
+    enabled at once, with no interaction between them.
+    """
+    extra = []
+    for base_name in evaluator_names:
+        pair = _DECIDER_COUNTERPART.get(base_name)
+        if pair is not None:
+            base_metric, decider_name = pair
+            if decider_enabled_for(base_metric):
+                extra.append(decider_name)
+
+        strands_pair = _STRANDS_DECIDER_COUNTERPART.get(base_name)
+        if strands_pair is not None:
+            base_metric, strands_decider_name = strands_pair
+            if strands_decider_enabled_for(base_metric):
+                extra.append(strands_decider_name)
+    return evaluator_names + extra if extra else evaluator_names
 
 
 class EvalPipeline:
@@ -181,6 +237,7 @@ class EvalPipeline:
                 mode=mode,
                 task_failed=task_failed,
             )
+            evaluator_names = _append_decider_evaluators(evaluator_names)
 
             span_results[span_id] = []
 
@@ -208,6 +265,10 @@ class EvalPipeline:
                         score=result.score,
                         reasoning=result.reasoning,
                         eval_type=result.eval_type,
+                        tokens_in=result.tokens_in,
+                        tokens_out=result.tokens_out,
+                        cost_usd=result.cost_usd,
+                        latency_ms=result.latency_ms,
                     )
                     log.debug(
                         "evaluator_done",
@@ -259,6 +320,10 @@ class EvalPipeline:
                         score=result.score,
                         reasoning=result.reasoning,
                         eval_type=result.eval_type,
+                        tokens_in=result.tokens_in,
+                        tokens_out=result.tokens_out,
+                        cost_usd=result.cost_usd,
+                        latency_ms=result.latency_ms,
                     )
                 except Exception as exc:
                     log.error("tool_evaluator_failed", evaluator=ev_name, error=str(exc))
@@ -298,6 +363,10 @@ class EvalPipeline:
                         score=result.score,
                         reasoning=result.reasoning,
                         eval_type=result.eval_type,
+                        tokens_in=result.tokens_in,
+                        tokens_out=result.tokens_out,
+                        cost_usd=result.cost_usd,
+                        latency_ms=result.latency_ms,
                     )
                 except Exception as exc:
                     log.error(

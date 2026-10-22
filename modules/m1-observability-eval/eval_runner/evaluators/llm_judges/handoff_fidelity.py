@@ -70,7 +70,7 @@ class HandoffFidelityJudge(JudgeBase):
             )
 
             try:
-                score, reasoning = self._call_judge(prompt)
+                score, reasoning, *_ = self._call_judge(prompt)
                 scores.append(score)
                 reasonings.append(
                     f"Handoff {from_agent}->{to_agent}: {reasoning}"

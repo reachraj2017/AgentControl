@@ -76,12 +76,13 @@ def _load_token_rates() -> tuple[float, float]:
 _input_rate, _output_rate = _load_token_rates()
 
 # ── Top-level tabs ─────────────────────────────────────────────────────────────
-tab_conv, tab_pa, tab_traces, tab_em, tab_thresh = st.tabs([
+tab_conv, tab_pa, tab_traces, tab_em, tab_thresh, tab_decider = st.tabs([
     "💬 Conversations",
     "🔭 Prompt Analysis",
     "🔍 Traces",
     "📐 Eval Metrics",
     "🚨 Thresholds",
+    "🧪 Decider Comparison",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1471,3 +1472,341 @@ with tab_thresh:
                     if response:
                         st.markdown("**Response:**")
                         st.write(_th_trunc(response))
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 6 — DECIDER COMPARISON
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_decider:
+    st.subheader("🧪 Decider Model Comparison")
+    st.caption(
+        "Shadow comparison between the incumbent LLM judge and a local "
+        "Ollama decision model (System 1 — typed questions, calibrated "
+        "confidence, no generation loop — nimble or tev1), for the same "
+        "metrics on the same calls. Decider scores are stored under a "
+        "`__decider`-suffixed metric name and never affect any other "
+        "number shown on this page."
+    )
+
+    _dc_enabled = os.getenv("DECIDER_ENABLED", "false").strip().lower() == "true"
+    _dc_allowlist = [m.strip() for m in os.getenv("DECIDER_METRICS", "").split(",") if m.strip()]
+    _dc_model = os.getenv("DECIDER_MODEL", "nimble").strip()
+
+    if _dc_enabled:
+        st.success(
+            f"DECIDER_ENABLED is on · Ollama model: **{_dc_model}**. "
+            f"Allowlisted metrics: {', '.join(_dc_allowlist) if _dc_allowlist else '(none configured)'}"
+        )
+    else:
+        st.warning(
+            "DECIDER_ENABLED is off — no new decider scores are being written. "
+            "Any data below is from a previous run."
+        )
+
+    # base metric -> decider metric (Group 1 — see decider_base.py's `__decider` convention)
+    _DC_PAIRS = {
+        "bias_score":            "bias_score__decider",
+        "toxicity_score":        "toxicity_score__decider",
+        "coherence":             "coherence__decider",
+        "conciseness":           "conciseness__decider",
+        "relevance":             "relevance__decider",
+        "faithfulness":          "faithfulness__decider",
+        "hallucination_score":   "hallucination_score__decider",
+        "instruction_following": "instruction_following__decider",
+    }
+
+    def _dc_agg(metric: str, extra: str = "") -> dict | None:
+        sql = f"""
+            SELECT count() AS n,
+                   avg(score) AS avg_score,
+                   avgIf(judge_tokens_in,  judge_latency_ms > 0) AS avg_tokens_in,
+                   avgIf(judge_tokens_out, judge_latency_ms > 0) AS avg_tokens_out,
+                   avgIf(judge_cost_usd,   judge_latency_ms > 0) AS avg_cost_usd,
+                   avgIf(judge_latency_ms, judge_latency_ms > 0) AS avg_latency_ms
+            FROM otel.eval_scores WHERE metric = '{metric}' {extra}
+        """
+        rows = db._execute(sql)
+        if not rows or not rows[0].get("n"):
+            return None
+        r = rows[0]
+        return {
+            "n": int(r["n"]),
+            "avg_score": float(r["avg_score"] or 0),
+            "tokens_in": float(r["avg_tokens_in"] or 0),
+            "tokens_out": float(r["avg_tokens_out"] or 0),
+            "cost_usd": float(r["avg_cost_usd"] or 0),
+            "latency_ms": float(r["avg_latency_ms"] or 0),
+        }
+
+    _dc_metric_sel = st.selectbox("Metric", list(_DC_PAIRS.keys()), key="dc_metric_sel")
+    _dc_decider_metric = _DC_PAIRS[_dc_metric_sel]
+
+    st.markdown("#### Tokens, cost & latency")
+    st.caption(
+        "Per-call average for the judge call itself (not the agent call being scored), "
+        "for the metric selected above, over rows that carry this instrumentation."
+    )
+    _dc_b_metrics = _dc_agg(_dc_metric_sel)
+    _dc_d_metrics = _dc_agg(_dc_decider_metric)
+    _dc_lat_c1, _dc_lat_c2, _dc_lat_c3, _dc_lat_c4 = st.columns(4)
+    with _dc_lat_c1:
+        st.metric("Incumbent latency", f"{_dc_b_metrics['latency_ms']:.0f} ms" if _dc_b_metrics else "—")
+        st.metric("Decider latency", f"{_dc_d_metrics['latency_ms']:.0f} ms" if _dc_d_metrics else "—")
+    with _dc_lat_c2:
+        st.metric("Incumbent cost", f"${_dc_b_metrics['cost_usd']:.5f}" if _dc_b_metrics else "—")
+        st.metric("Decider cost", f"${_dc_d_metrics['cost_usd']:.5f}" if _dc_d_metrics else "—")
+    with _dc_lat_c3:
+        st.metric("Incumbent tokens in", f"{_dc_b_metrics['tokens_in']:.0f}" if _dc_b_metrics else "—")
+        st.metric("Decider tokens in", f"{_dc_d_metrics['tokens_in']:.0f}" if _dc_d_metrics else "—")
+    with _dc_lat_c4:
+        st.metric("Incumbent tokens out", f"{_dc_b_metrics['tokens_out']:.0f}" if _dc_b_metrics else "—")
+        st.metric("Decider tokens out", f"{_dc_d_metrics['tokens_out']:.0f}" if _dc_d_metrics else "—")
+    if not _dc_b_metrics and not _dc_d_metrics:
+        st.caption("No data yet for this metric with the current filters.")
+
+    st.markdown("#### Side-by-side averages — all metrics")
+    st.caption(
+        "Same Source / Agent / Model / time filters as the Eval Metrics tab above. "
+        "Tokens/cost/latency are only averaged over rows that actually carry that "
+        "data (`judge_latency_ms > 0`) — older rows scored before this instrumentation "
+        "existed default to 0 and would otherwise silently drag the average down."
+    )
+
+    _dc_rows = []
+    for _dc_base, _dc_dec in _DC_PAIRS.items():
+        _b = _dc_agg(_dc_base, _em_fs())
+        _d = _dc_agg(_dc_dec, _em_fs())
+        _dc_rows.append({
+            "Metric": _dc_base,
+            "Δ score (decider − incumbent)": (
+                round(_d["avg_score"] - _b["avg_score"], 3) if _b and _d else None
+            ),
+            "Δ cost $ (decider − incumbent)": (
+                round(_d["cost_usd"] - _b["cost_usd"], 6) if _b and _d else None
+            ),
+            "Δ latency ms (decider − incumbent)": (
+                round(_d["latency_ms"] - _b["latency_ms"], 0) if _b and _d else None
+            ),
+            "Incumbent avg":     round(_b["avg_score"], 3) if _b else None,
+            "Incumbent n":       _b["n"] if _b else 0,
+            "Incumbent tok in/out": f"{_b['tokens_in']:.0f}/{_b['tokens_out']:.0f}" if _b else "—",
+            "Incumbent cost $":  f"{_b['cost_usd']:.5f}" if _b else "—",
+            "Incumbent ms":      f"{_b['latency_ms']:.0f}" if _b else "—",
+            "Decider avg":       round(_d["avg_score"], 3) if _d else None,
+            "Decider n":         _d["n"] if _d else 0,
+            "Decider tok in/out": f"{_d['tokens_in']:.0f}/{_d['tokens_out']:.0f}" if _d else "—",
+            "Decider cost $":    f"{_d['cost_usd']:.5f}" if _d else "—",
+            "Decider ms":        f"{_d['latency_ms']:.0f}" if _d else "—",
+        })
+
+    st.dataframe(pd.DataFrame(_dc_rows), use_container_width=True, hide_index=True)
+
+    st.markdown("#### Per-call agreement")
+    st.caption(
+        f"Showing the metric selected above: **{_dc_metric_sel}**. Joins both "
+        "scores on trace_id + span_id for the same call — the dual-scoring "
+        "validation approach from the design doc, made visible."
+    )
+
+    _dc_join_sql = f"""
+        SELECT
+            b.trace_id      AS trace_id,
+            b.score         AS incumbent_score,
+            d.score         AS decider_score,
+            d.score - b.score AS delta,
+            b.judge_tokens_in  AS incumbent_tokens_in,
+            b.judge_tokens_out AS incumbent_tokens_out,
+            b.judge_cost_usd   AS incumbent_cost_usd,
+            b.judge_latency_ms AS incumbent_latency_ms,
+            d.judge_tokens_in  AS decider_tokens_in,
+            d.judge_tokens_out AS decider_tokens_out,
+            d.judge_cost_usd   AS decider_cost_usd,
+            d.judge_latency_ms AS decider_latency_ms,
+            d.judge_cost_usd    - b.judge_cost_usd    AS cost_delta,
+            d.judge_latency_ms - b.judge_latency_ms AS latency_delta,
+            d.reasoning     AS decider_reasoning,
+            b.evaluated_at  AS evaluated_at
+        FROM (SELECT trace_id, span_id, score, evaluated_at, judge_tokens_in, judge_tokens_out, judge_cost_usd, judge_latency_ms FROM otel.eval_scores WHERE metric = '{_dc_metric_sel}' {_em_fs()}) b
+        INNER JOIN (SELECT trace_id, span_id, score, reasoning, judge_tokens_in, judge_tokens_out, judge_cost_usd, judge_latency_ms FROM otel.eval_scores WHERE metric = '{_dc_decider_metric}') d
+          ON b.trace_id = d.trace_id AND b.span_id = d.span_id
+        ORDER BY b.evaluated_at DESC
+        LIMIT 50
+    """
+    try:
+        _dc_join_rows = db._execute(_dc_join_sql)
+    except Exception as exc:
+        _dc_join_rows = []
+        st.error(f"Join query failed: {exc}")
+
+    if _dc_join_rows:
+        _dc_join_df = pd.DataFrame(_dc_join_rows)
+        for _c in ("incumbent_score", "decider_score", "delta"):
+            _dc_join_df[_c] = _dc_join_df[_c].astype(float).round(3)
+        for _c in ("incumbent_cost_usd", "decider_cost_usd", "cost_delta"):
+            _dc_join_df[_c] = _dc_join_df[_c].astype(float).round(6)
+        for _c in ("incumbent_latency_ms", "decider_latency_ms", "latency_delta"):
+            _dc_join_df[_c] = _dc_join_df[_c].astype(float).round(0)
+        _dc_display_cols = [
+            "trace_id", "delta", "cost_delta", "latency_delta",
+            "incumbent_score", "decider_score",
+            "incumbent_tokens_in", "incumbent_tokens_out", "incumbent_cost_usd", "incumbent_latency_ms",
+            "decider_tokens_in", "decider_tokens_out", "decider_cost_usd", "decider_latency_ms",
+            "decider_reasoning", "evaluated_at",
+        ]
+        st.dataframe(
+            _dc_join_df[_dc_display_cols]
+                .style.applymap(_score_style, subset=["incumbent_score", "decider_score"]),
+            use_container_width=True,
+        )
+        _dc_agree_rate = (_dc_join_df["delta"].abs() <= 0.15).mean()
+        st.caption(f"{len(_dc_join_df)} calls scored by both · {_dc_agree_rate*100:.0f}% within 0.15 of each other")
+    else:
+        st.info("No calls have been scored by both judges yet for this metric (with the current filters).")
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Strands Decider 2B — second, independent decision-model track (native
+    # process, port 8000), run alongside the Ollama track above. Reuses
+    # _dc_agg/_em_fs from above.
+    # ─────────────────────────────────────────────────────────────────────
+    st.divider()
+    st.markdown("### 🧪 Strands Decider 2B")
+    st.caption(
+        "Second, independent decision-model track — native Strands Decider "
+        "process, not Ollama. Same metrics, writes to `__strands`-suffixed "
+        "metric names, never collides with the Ollama `__decider` track above."
+    )
+
+    _sd_enabled = os.getenv("STRANDS_DECIDER_ENABLED", "false").strip().lower() == "true"
+    _sd_allowlist = [m.strip() for m in os.getenv("STRANDS_DECIDER_METRICS", "").split(",") if m.strip()]
+
+    if _sd_enabled:
+        st.success(
+            f"STRANDS_DECIDER_ENABLED is on. Allowlisted metrics: "
+            f"{', '.join(_sd_allowlist) if _sd_allowlist else '(none configured)'}"
+        )
+    else:
+        st.warning(
+            "STRANDS_DECIDER_ENABLED is off — no new Strands scores are being written. "
+            "Any data below is from a previous run."
+        )
+
+    _STRANDS_PAIRS = {
+        "bias_score":            "bias_score__strands",
+        "toxicity_score":        "toxicity_score__strands",
+        "coherence":             "coherence__strands",
+        "conciseness":           "conciseness__strands",
+        "relevance":             "relevance__strands",
+        "faithfulness":          "faithfulness__strands",
+        "hallucination_score":   "hallucination_score__strands",
+        "instruction_following": "instruction_following__strands",
+    }
+
+    _sd_metric_sel = st.selectbox("Metric", list(_STRANDS_PAIRS.keys()), key="sd_metric_sel")
+    _sd_strands_metric = _STRANDS_PAIRS[_sd_metric_sel]
+
+    st.markdown("#### Tokens, cost & latency")
+    st.caption(
+        "Per-call average for the judge call itself, for the metric selected above. "
+        "Strands cost is always $0 — self-hosted, no metered billing."
+    )
+    _sd_b_metrics = _dc_agg(_sd_metric_sel)
+    _sd_s_metrics = _dc_agg(_sd_strands_metric)
+    _sd_lat_c1, _sd_lat_c2, _sd_lat_c3, _sd_lat_c4 = st.columns(4)
+    with _sd_lat_c1:
+        st.metric("Incumbent latency", f"{_sd_b_metrics['latency_ms']:.0f} ms" if _sd_b_metrics else "—")
+        st.metric("Strands latency", f"{_sd_s_metrics['latency_ms']:.0f} ms" if _sd_s_metrics else "—")
+    with _sd_lat_c2:
+        st.metric("Incumbent cost", f"${_sd_b_metrics['cost_usd']:.5f}" if _sd_b_metrics else "—")
+        st.metric("Strands cost", "$0.00000" if _sd_s_metrics else "—")
+    with _sd_lat_c3:
+        st.metric("Incumbent tokens in", f"{_sd_b_metrics['tokens_in']:.0f}" if _sd_b_metrics else "—")
+        st.metric("Strands tokens in", f"{_sd_s_metrics['tokens_in']:.0f}" if _sd_s_metrics else "—")
+    with _sd_lat_c4:
+        st.metric("Incumbent tokens out", f"{_sd_b_metrics['tokens_out']:.0f}" if _sd_b_metrics else "—")
+        st.metric("Strands tokens out", f"{_sd_s_metrics['tokens_out']:.0f}" if _sd_s_metrics else "—")
+    if not _sd_b_metrics and not _sd_s_metrics:
+        st.caption("No data yet for this metric with the current filters.")
+
+    st.markdown("#### Side-by-side averages — all metrics")
+    _sd_rows = []
+    for _sd_base, _sd_strands in _STRANDS_PAIRS.items():
+        _sb = _dc_agg(_sd_base, _em_fs())
+        _ss = _dc_agg(_sd_strands, _em_fs())
+        _sd_rows.append({
+            "Metric": _sd_base,
+            "Δ score (strands − incumbent)": (
+                round(_ss["avg_score"] - _sb["avg_score"], 3) if _sb and _ss else None
+            ),
+            "Δ cost $": (
+                round(0.0 - _sb["cost_usd"], 6) if _sb and _ss else None  # strands is self-hosted, $0
+            ),
+            "Δ latency ms": (
+                round(_ss["latency_ms"] - _sb["latency_ms"], 0) if _sb and _ss else None
+            ),
+            "Incumbent avg":        round(_sb["avg_score"], 3) if _sb else None,
+            "Incumbent n":          _sb["n"] if _sb else 0,
+            "Incumbent tok in/out": f"{_sb['tokens_in']:.0f}/{_sb['tokens_out']:.0f}" if _sb else "—",
+            "Incumbent cost $":     f"{_sb['cost_usd']:.5f}" if _sb else "—",
+            "Incumbent ms":         f"{_sb['latency_ms']:.0f}" if _sb else "—",
+            "Strands avg":          round(_ss["avg_score"], 3) if _ss else None,
+            "Strands n":            _ss["n"] if _ss else 0,
+            "Strands tok in/out":   f"{_ss['tokens_in']:.0f}/{_ss['tokens_out']:.0f}" if _ss else "—",
+            "Strands cost $":       "0.00000" if _ss else "—",
+            "Strands ms":           f"{_ss['latency_ms']:.0f}" if _ss else "—",
+        })
+    st.dataframe(pd.DataFrame(_sd_rows), use_container_width=True, hide_index=True)
+
+    st.markdown("#### Per-call agreement")
+    st.caption(f"Showing the metric selected above: **{_sd_metric_sel}**.")
+
+    _sd_join_sql = f"""
+        SELECT
+            b.trace_id      AS trace_id,
+            b.score         AS incumbent_score,
+            d.score         AS strands_score,
+            d.score - b.score AS delta,
+            0.0 - b.judge_cost_usd AS cost_delta,
+            d.judge_latency_ms - b.judge_latency_ms AS latency_delta,
+            b.judge_tokens_in  AS incumbent_tokens_in,
+            b.judge_tokens_out AS incumbent_tokens_out,
+            b.judge_cost_usd   AS incumbent_cost_usd,
+            b.judge_latency_ms AS incumbent_latency_ms,
+            d.judge_tokens_in  AS strands_tokens_in,
+            d.judge_tokens_out AS strands_tokens_out,
+            d.judge_latency_ms AS strands_latency_ms,
+            d.reasoning     AS strands_reasoning,
+            b.evaluated_at  AS evaluated_at
+        FROM (SELECT trace_id, span_id, score, evaluated_at, judge_tokens_in, judge_tokens_out, judge_cost_usd, judge_latency_ms FROM otel.eval_scores WHERE metric = '{_sd_metric_sel}' {_em_fs()}) b
+        INNER JOIN (SELECT trace_id, span_id, score, reasoning, judge_tokens_in, judge_tokens_out, judge_latency_ms FROM otel.eval_scores WHERE metric = '{_sd_strands_metric}') d
+          ON b.trace_id = d.trace_id AND b.span_id = d.span_id
+        ORDER BY b.evaluated_at DESC
+        LIMIT 50
+    """
+    try:
+        _sd_join_rows = db._execute(_sd_join_sql)
+    except Exception as exc:
+        _sd_join_rows = []
+        st.error(f"Join query failed: {exc}")
+
+    if _sd_join_rows:
+        _sd_join_df = pd.DataFrame(_sd_join_rows)
+        for _c in ("incumbent_score", "strands_score", "delta"):
+            _sd_join_df[_c] = _sd_join_df[_c].astype(float).round(3)
+        for _c in ("incumbent_cost_usd", "cost_delta"):
+            _sd_join_df[_c] = _sd_join_df[_c].astype(float).round(6)
+        for _c in ("incumbent_latency_ms", "strands_latency_ms", "latency_delta"):
+            _sd_join_df[_c] = _sd_join_df[_c].astype(float).round(0)
+        _sd_join_df["strands_cost_usd"] = 0.0  # self-hosted, always $0
+        st.dataframe(
+            _sd_join_df[[
+                "trace_id", "delta", "cost_delta", "latency_delta",
+                "incumbent_score", "strands_score",
+                "incumbent_tokens_in", "incumbent_tokens_out", "incumbent_cost_usd", "incumbent_latency_ms",
+                "strands_tokens_in", "strands_tokens_out", "strands_cost_usd", "strands_latency_ms",
+                "strands_reasoning", "evaluated_at",
+            ]].style.applymap(_score_style, subset=["incumbent_score", "strands_score"]),
+            use_container_width=True,
+        )
+        _sd_agree_rate = (_sd_join_df["delta"].abs() <= 0.15).mean()
+        st.caption(f"{len(_sd_join_df)} calls scored by both · {_sd_agree_rate*100:.0f}% within 0.15 of each other")
+    else:
+        st.info("No calls have been scored by both judges yet for this metric (with the current filters).")

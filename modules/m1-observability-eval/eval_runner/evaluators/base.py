@@ -13,6 +13,10 @@ class EvalResult:
     score: float        # 0.0 – 1.0
     reasoning: str
     eval_type: str      # 'deterministic' | 'embedding' | 'llm_judge'
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_usd: float = 0.0
+    latency_ms: float = 0.0
 
     def __post_init__(self) -> None:
         self.score = BaseEvaluator.clamp_score(self.score)

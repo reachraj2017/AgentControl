@@ -115,7 +115,11 @@ CREATE TABLE IF NOT EXISTS otel.eval_scores (
     score           Float32,
     reasoning       String   DEFAULT '',
     eval_type       String,   -- 'deterministic' | 'embedding' | 'llm_judge'
-    evaluated_at    DateTime  DEFAULT now()
+    evaluated_at    DateTime  DEFAULT now(),
+    judge_tokens_in   UInt32  DEFAULT 0,   -- prompt tokens for the judge call itself (not the agent call being scored)
+    judge_tokens_out  UInt32  DEFAULT 0,
+    judge_cost_usd    Float64 DEFAULT 0,   -- 0 for self-hosted/local judges (e.g. Ollama) — a real answer, not missing data
+    judge_latency_ms  Float64 DEFAULT 0
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(evaluated_at)
 ORDER BY (run_id, trace_id, evaluator, evaluated_at);

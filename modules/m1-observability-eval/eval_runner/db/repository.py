@@ -209,6 +209,10 @@ class Repository:
         score: float,
         reasoning: str,
         eval_type: str,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        cost_usd: float = 0.0,
+        latency_ms: float = 0.0,
     ) -> None:
         """Insert an eval score row."""
         score_id = str(uuid.uuid4())
@@ -216,7 +220,8 @@ class Repository:
         query = """
             INSERT INTO otel.eval_scores
                 (id, trace_id, run_id, span_id, evaluator, metric,
-                 score, reasoning, eval_type, evaluated_at)
+                 score, reasoning, eval_type, evaluated_at,
+                 judge_tokens_in, judge_tokens_out, judge_cost_usd, judge_latency_ms)
             VALUES
         """
         data = [(
@@ -230,6 +235,10 @@ class Repository:
             reasoning,
             eval_type,
             now,
+            int(tokens_in),
+            int(tokens_out),
+            float(cost_usd),
+            float(latency_ms),
         )]
         try:
             self._ch.execute_many(query, data)

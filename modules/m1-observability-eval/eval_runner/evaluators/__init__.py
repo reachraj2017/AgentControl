@@ -29,6 +29,22 @@ from .llm_judges.coherence import CoherenceJudge
 from .llm_judges.conciseness import ConcisenessJudge
 from .llm_judges.conversation_relevancy import ConversationRelevancyJudge
 from .deterministic.tool_output_handling import ToolOutputHandlingEvaluator
+from .llm_judges.decider_bias import DeciderBiasJudge
+from .llm_judges.decider_toxicity import DeciderToxicityJudge
+from .llm_judges.decider_coherence import DeciderCoherenceJudge
+from .llm_judges.decider_conciseness import DeciderConcisenessJudge
+from .llm_judges.decider_relevance import DeciderRelevanceJudge
+from .llm_judges.decider_faithfulness import DeciderFaithfulnessJudge
+from .llm_judges.decider_hallucination import DeciderHallucinationJudge
+from .llm_judges.decider_instruction_following import DeciderInstructionFollowingJudge
+from .llm_judges.decider_strands_bias import DeciderStrandsBiasJudge
+from .llm_judges.decider_strands_toxicity import DeciderStrandsToxicityJudge
+from .llm_judges.decider_strands_coherence import DeciderStrandsCoherenceJudge
+from .llm_judges.decider_strands_conciseness import DeciderStrandsConcisenessJudge
+from .llm_judges.decider_strands_relevance import DeciderStrandsRelevanceJudge
+from .llm_judges.decider_strands_faithfulness import DeciderStrandsFaithfulnessJudge
+from .llm_judges.decider_strands_hallucination import DeciderStrandsHallucinationJudge
+from .llm_judges.decider_strands_instruction_following import DeciderStrandsInstructionFollowingJudge
 
 ALL_EVALUATORS = [
     FormatComplianceEvaluator(),
@@ -62,6 +78,28 @@ ALL_EVALUATORS = [
     ConcisenessJudge(),
     ConversationRelevancyJudge(),
     ToolOutputHandlingEvaluator(),
+    # Dormant unless the pipeline explicitly requests them by name (see
+    # eval_pipeline.py's _DECIDER_COUNTERPART, gated by DECIDER_ENABLED
+    # / DECIDER_METRICS).
+    DeciderBiasJudge(),
+    DeciderToxicityJudge(),
+    DeciderCoherenceJudge(),
+    DeciderConcisenessJudge(),
+    DeciderRelevanceJudge(),
+    DeciderFaithfulnessJudge(),
+    DeciderHallucinationJudge(),
+    DeciderInstructionFollowingJudge(),
+    # Second, independent decision-model track (Strands Decider, not Ollama) —
+    # also dormant unless the pipeline explicitly requests them by name, gated
+    # by STRANDS_DECIDER_ENABLED / STRANDS_DECIDER_METRICS.
+    DeciderStrandsBiasJudge(),
+    DeciderStrandsToxicityJudge(),
+    DeciderStrandsCoherenceJudge(),
+    DeciderStrandsConcisenessJudge(),
+    DeciderStrandsRelevanceJudge(),
+    DeciderStrandsFaithfulnessJudge(),
+    DeciderStrandsHallucinationJudge(),
+    DeciderStrandsInstructionFollowingJudge(),
 ]
 
 EVALUATOR_MAP = {e.name: e for e in ALL_EVALUATORS}
@@ -98,6 +136,22 @@ __all__ = [
     "ConcisenessJudge",
     "ConversationRelevancyJudge",
     "ToolOutputHandlingEvaluator",
+    "DeciderBiasJudge",
+    "DeciderToxicityJudge",
+    "DeciderCoherenceJudge",
+    "DeciderConcisenessJudge",
+    "DeciderRelevanceJudge",
+    "DeciderFaithfulnessJudge",
+    "DeciderHallucinationJudge",
+    "DeciderInstructionFollowingJudge",
+    "DeciderStrandsBiasJudge",
+    "DeciderStrandsToxicityJudge",
+    "DeciderStrandsCoherenceJudge",
+    "DeciderStrandsConcisenessJudge",
+    "DeciderStrandsRelevanceJudge",
+    "DeciderStrandsFaithfulnessJudge",
+    "DeciderStrandsHallucinationJudge",
+    "DeciderStrandsInstructionFollowingJudge",
     "ALL_EVALUATORS",
     "EVALUATOR_MAP",
 ]
